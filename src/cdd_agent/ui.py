@@ -96,62 +96,128 @@ class StreamingUI:
         Args:
             event_stream: Generator yielding event dicts from agent.stream()
         """
+        import time
+        from threading import Thread, Event
+
         accumulated_text = ""
-        thinking_shown = False
+        status_active = False
+        stop_animation = Event()
+        status_events = []  # Keep last 3 events
+
+        def format_status():
+            """Format status events as 3-line display."""
+            if not status_events:
+                return ""
+            lines = []
+            for event_text in status_events[-3:]:  # Last 3 events
+                lines.append(event_text)
+            return "\n".join(lines)
+
+        def animate_status(live: Live):
+            """Animate thinking dots in status area."""
+            dots = 0
+            while not stop_animation.is_set():
+                dots = (dots % 3) + 1
+                dot_str = "." * dots
+                # Update the first line with animated dots
+                if status_events:
+                    # Keep all events but animate the first one
+                    animated_events = status_events.copy()
+                    if animated_events:
+                        animated_events[0] = f"💭 Thinking{dot_str}"
+                    lines = animated_events[-3:]  # Last 3
+                    live.update("\n".join(lines))
+                time.sleep(1.0)  # Slower animation (1 second per dot)
+
+        animation_thread = None
+        status_live = None
 
         for event in event_stream:
             event_type = event.get("type")
 
             if event_type == "thinking":
-                # Show iteration counter
-                if not thinking_shown:
-                    self.console.print(
-                        f"[{THINKING_COLOR}]⟳ {event['content']}...[/{THINKING_COLOR}]"
+                thinking_msg = event.get("content", "Thinking")
+                status_events.append(f"💭 {thinking_msg}.")
+
+                # Start status area if not active
+                if not status_active:
+                    stop_animation.clear()
+                    status_live = Live(
+                        format_status(),
+                        console=self.console,
+                        refresh_per_second=2,
                     )
-                    thinking_shown = True
-
-            elif event_type == "text":
-                # Accumulate and render markdown
-                chunk = event.get("content", "")
-                accumulated_text += chunk
-
-                # Use Live to update in place
-                if not thinking_shown:
-                    # First chunk - start live display
-                    thinking_shown = True
-
-                # For now, just print chunks (we'll add Live display later)
-                self.console.print(chunk, end="", markup=False, highlight=False)
+                    status_live.start()
+                    animation_thread = Thread(
+                        target=animate_status,
+                        args=(status_live,),
+                        daemon=True,
+                    )
+                    animation_thread.start()
+                    status_active = True
 
             elif event_type == "tool_use":
-                # Tool being called
                 tool_name = event.get("name", "unknown")
-                self.console.print(
-                    f"\n[{TOOL_COLOR}]🔧 Using tool: {tool_name}[/{TOOL_COLOR}]"
-                )
+                status_events.append(f"🔧 Using tool: {tool_name}")
+                if status_live:
+                    status_live.update(format_status())
 
             elif event_type == "tool_result":
-                # Tool result
                 tool_name = event.get("name", "unknown")
                 is_error = event.get("is_error", False)
 
                 if is_error:
-                    self.console.print(
-                        f"[{ERROR_COLOR}]  ✗ Error in {tool_name}[/{ERROR_COLOR}]"
-                    )
+                    msg = f"✗ Error in {tool_name}"
                 else:
-                    self.console.print(
-                        f"[{SUCCESS_COLOR}]  ✓ {tool_name} completed[/{SUCCESS_COLOR}]"
-                    )
+                    msg = f"✓ {tool_name} completed"
 
-                # Reset accumulated text for next response
-                accumulated_text = ""
-                thinking_shown = False
+                status_events.append(msg)
+                if status_live:
+                    status_live.update(format_status())
+
+            elif event_type == "text":
+                # Stop status area and start text output
+                if status_active:
+                    stop_animation.set()
+                    if animation_thread:
+                        animation_thread.join(timeout=1.0)
+                    if status_live:
+                        status_live.stop()
+                    status_active = False
+                    status_events.clear()
+                    self.console.print()  # New line after status
+
+                # Accumulate and render text
+                chunk = event.get("content", "")
+                accumulated_text += chunk
+
+                # Print chunks as they arrive
+                self.console.print(chunk, end="", markup=False, highlight=False)
 
             elif event_type == "error":
+                # Stop status area
+                if status_active:
+                    stop_animation.set()
+                    if animation_thread:
+                        animation_thread.join(timeout=1.0)
+                    if status_live:
+                        status_live.stop()
+                    status_active = False
+                    status_events.clear()
+                    self.console.print()  # New line after status
+
                 # Error message
                 error_msg = event.get("content", "Unknown error")
-                self.console.print(f"\n[{ERROR_COLOR}]⚠ {error_msg}[/{ERROR_COLOR}]")
+                self.console.print(f"[{ERROR_COLOR}]⚠ {error_msg}[/{ERROR_COLOR}]")
+
+        # Stop status area if still running
+        if status_active:
+            stop_animation.set()
+            if animation_thread:
+                animation_thread.join(timeout=1.0)
+            if status_live:
+                status_live.stop()
+            self.console.print()  # New line after status
 
         # Final newline after response
         self.console.print()

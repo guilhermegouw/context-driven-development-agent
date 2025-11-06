@@ -105,6 +105,7 @@ def chat(prompt: str, provider: str, model: str, system: str, no_stream: bool, s
             provider_config=provider_config,
             tool_registry=tool_registry,
             model_tier=model,
+            max_iterations=25,  # Increased from default 10
         )
 
         # Decide which UI to use

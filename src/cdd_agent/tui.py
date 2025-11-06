@@ -6,10 +6,11 @@ from typing import Optional
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Container, VerticalScroll
-from textual.widgets import Input, Static
+from textual.message import Message
+from textual.widgets import Input, Static, TextArea
 
 from . import __version__
 from .agent import Agent
@@ -137,6 +138,49 @@ class MessageWidget(Static):
 
             yield Static(panel)
 
+    def update_content(self, new_content: str):
+        """Update message content (for streaming).
+
+        Args:
+            new_content: New content to display
+        """
+        self.content = new_content
+        # Re-render the widget
+        self.remove_children()
+        self.mount(*self.compose())
+
+
+class StatusWidget(Static):
+    """Fixed 3-line status area that shows recent events."""
+
+    def __init__(self, **kwargs):
+        """Initialize status widget."""
+        super().__init__("", **kwargs)
+        self.events = []  # Keep last 3 events
+
+    def add_event(self, text: str):
+        """Add an event to the status display.
+
+        Args:
+            text: Event text to display
+        """
+        self.events.append(text)
+        # Keep only last 3 events
+        if len(self.events) > 3:
+            self.events.pop(0)
+        self.update_display()
+
+    def update_display(self):
+        """Update the displayed content."""
+        # Render as Text with proper styling
+        content = "\n".join(self.events) if self.events else ""
+        self.update(Text(content, style=BRAND_COLOR))
+
+    def clear_events(self):
+        """Clear all events."""
+        self.events = []
+        self.update_display()
+
 
 class ChatHistory(VerticalScroll):
     """Scrollable chat history container."""
@@ -165,6 +209,47 @@ class ChatHistory(VerticalScroll):
         self.scroll_end(animate=False)
 
 
+class CustomTextArea(TextArea):
+    """Custom TextArea that handles Enter for submission and Ctrl+J for newlines."""
+
+    class Submitted(Message):
+        """Message sent when the text area is submitted with Enter."""
+
+        def __init__(self, text_area: "CustomTextArea") -> None:
+            """Initialize submitted message.
+
+            Args:
+                text_area: The text area that was submitted
+            """
+            self.text_area = text_area
+            super().__init__()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events before TextArea processes them.
+
+        Args:
+            event: Key event
+        """
+        # Intercept Ctrl+J for newline FIRST (before checking Enter)
+        if event.key == "j" and event.ctrl:
+            self.insert_text_at_selection("\n")
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Intercept Enter to prevent newline and submit
+        if event.key == "enter":
+            # Send custom submit message to parent
+            self.post_message(self.Submitted(self))
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Let TextArea handle all other keys
+        # Don't call super().on_key() - it will bubble to parent
+        # TextArea handles keys internally
+
+
 class CDDAgentTUI(App):
     """CDD Agent Textual TUI Application."""
 
@@ -175,8 +260,15 @@ class CDDAgentTUI(App):
 
     ChatHistory {
         height: 1fr;
-        padding: 1 2;
+        padding: 1 2 0 2;  /* Remove bottom padding */
         scrollbar-size: 0 0;  /* Hide scrollbar */
+        background: transparent;
+    }
+
+    #status-widget {
+        height: auto;
+        min-height: 3;
+        padding: 0 2;
         background: transparent;
     }
 
@@ -184,13 +276,29 @@ class CDDAgentTUI(App):
         dock: bottom;
         height: auto;
         padding: 0 1;
+        margin: 0 0 0 0;
         background: transparent;
     }
 
     #message-input {
-        margin: 1 0 0 0;
+        margin: 0 0 0 0;
+        height: auto;
+        max-height: 10;
         border: round #d4a574;
         background: transparent;
+        scrollbar-size: 0 0;  /* Hide scrollbar */
+    }
+
+    #message-input:focus {
+        border: round #d4a574;
+    }
+
+    #message-input > .text-area--cursor-line {
+        background: transparent;
+    }
+
+    TextArea > .text-area--cursor-line {
+        background: transparent !important;
     }
 
     #hint-text {
@@ -201,7 +309,7 @@ class CDDAgentTUI(App):
     }
 
     MessageWidget {
-        margin: 0 0 1 0;
+        margin: 0 0 0 0;
     }
     """
 
@@ -239,14 +347,16 @@ class CDDAgentTUI(App):
         # Chat history (scrollable)
         yield ChatHistory(id="chat-history")
 
+        # Status widget (3-line scrolling event area)
+        yield StatusWidget(id="status-widget")
+
         # Input container at bottom
         with Container(id="input-container"):
-            yield Input(
-                placeholder="Type your message...",
+            yield CustomTextArea(
                 id="message-input",
             )
             yield Static(
-                "Ctrl+C Quit • Ctrl+L Clear • Ctrl+N New Chat • F1 Help",
+                "Enter Send • Ctrl+J New line • Ctrl+C Quit • Ctrl+L Clear",
                 id="hint-text",
             )
 
@@ -261,21 +371,23 @@ class CDDAgentTUI(App):
         chat_history.add_message(welcome_text, role="system", is_markdown=False)
 
         # Focus the input
-        self.query_one("#message-input", Input).focus()
+        self.query_one("#message-input", CustomTextArea).focus()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle message submission.
+    def on_custom_text_area_submitted(self, event: CustomTextArea.Submitted) -> None:
+        """Handle when CustomTextArea submits (Enter pressed).
 
         Args:
-            event: Input submitted event
+            event: Submitted event from CustomTextArea
         """
-        message = event.value.strip()
+        # This is triggered by CustomTextArea when Enter is pressed
+        text_area = self.query_one("#message-input", CustomTextArea)
+        message = text_area.text.strip()
 
         if not message:
             return
 
         # Clear input
-        event.input.value = ""
+        text_area.clear()
 
         # Handle slash commands
         if message.startswith("/"):
@@ -344,30 +456,52 @@ class CDDAgentTUI(App):
             message: User message
         """
         chat_history = self.query_one("#chat-history", ChatHistory)
+        status_widget = self.query_one("#status-widget", StatusWidget)
 
         # Start streaming
         response_text = []
+        animation_active = False
+        stop_animation = False
+        streaming_message = None  # Track the live message widget
+
+        def animate_status():
+            """Animate thinking dots in status widget."""
+            import time
+            nonlocal stop_animation
+            dots = 0
+            while not stop_animation:
+                dots = (dots % 3) + 1
+                dot_str = "." * dots
+                # Update the first line with animated dots
+                if status_widget.events:
+                    status_widget.events[0] = f"💭 Thinking{dot_str}"
+                    self.call_from_thread(status_widget.update_display)
+                time.sleep(1.0)  # Slower animation (1 second per dot)
 
         try:
             for event in self.agent.stream(message, system_prompt=self.system_prompt):
                 event_type = event.get("type")
 
-                if event_type == "text":
-                    # Accumulate text
-                    chunk = event.get("content", "")
-                    response_text.append(chunk)
+                if event_type == "thinking":
+                    thinking_msg = event.get("content", "Thinking")
+                    self.call_from_thread(
+                        status_widget.add_event,
+                        f"💭 {thinking_msg}."
+                    )
 
-                    # Update the last assistant message (or create if first chunk)
-                    # For now, we'll just accumulate and show at end
-                    # TODO: Implement live updating widget
+                    # Start animation
+                    if not animation_active:
+                        from threading import Thread
+                        stop_animation = False
+                        thread = Thread(target=animate_status, daemon=True)
+                        thread.start()
+                        animation_active = True
 
                 elif event_type == "tool_use":
                     tool_name = event.get("name", "unknown")
                     self.call_from_thread(
-                        chat_history.add_message,
-                        f"🔧 Using tool: {tool_name}",
-                        role="tool",
-                        is_markdown=False,
+                        status_widget.add_event,
+                        f"🔧 Using tool: {tool_name}"
                     )
 
                 elif event_type == "tool_result":
@@ -376,19 +510,42 @@ class CDDAgentTUI(App):
 
                     if is_error:
                         msg = f"✗ Error in {tool_name}"
-                        role = "error"
                     else:
                         msg = f"✓ {tool_name} completed"
-                        role = "tool"
 
-                    self.call_from_thread(
-                        chat_history.add_message,
-                        msg,
-                        role=role,
-                        is_markdown=False,
-                    )
+                    self.call_from_thread(status_widget.add_event, msg)
+
+                elif event_type == "text":
+                    # Stop animation and clear status widget on first text chunk
+                    if not streaming_message:
+                        stop_animation = True
+                        animation_active = False
+                        self.call_from_thread(status_widget.clear_events)
+
+                        # Create streaming message widget
+                        streaming_message = MessageWidget(
+                            "",
+                            role="assistant",
+                            is_markdown=True,
+                        )
+                        self.call_from_thread(chat_history.mount, streaming_message)
+                        self.call_from_thread(chat_history.scroll_end, animate=False)
+
+                    # Accumulate text
+                    chunk = event.get("content", "")
+                    response_text.append(chunk)
+
+                    # Update the message widget with accumulated text
+                    accumulated = "".join(response_text)
+                    self.call_from_thread(streaming_message.update_content, accumulated)
+                    self.call_from_thread(chat_history.scroll_end, animate=False)
 
                 elif event_type == "error":
+                    # Stop animation
+                    stop_animation = True
+                    animation_active = False
+                    self.call_from_thread(status_widget.clear_events)
+
                     error_msg = event.get("content", "Unknown error")
                     self.call_from_thread(
                         chat_history.add_message,
@@ -397,8 +554,12 @@ class CDDAgentTUI(App):
                         is_markdown=False,
                     )
 
-            # Show final response
-            if response_text:
+            # Clear status widget
+            stop_animation = True
+            self.call_from_thread(status_widget.clear_events)
+
+            # If no streaming message was created but we have text, add it
+            if response_text and not streaming_message:
                 final_response = "".join(response_text)
                 self.call_from_thread(
                     chat_history.add_message,
@@ -408,6 +569,10 @@ class CDDAgentTUI(App):
                 )
 
         except Exception as e:
+            # Stop animation and clear status
+            stop_animation = True
+            self.call_from_thread(status_widget.clear_events)
+
             self.call_from_thread(
                 chat_history.add_message,
                 f"Error: {str(e)}",
