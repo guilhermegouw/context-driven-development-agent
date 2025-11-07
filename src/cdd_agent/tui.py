@@ -210,7 +210,7 @@ class ChatHistory(VerticalScroll):
 
 
 class CustomTextArea(TextArea):
-    """Custom TextArea that handles Enter for submission and Ctrl+J for newlines."""
+    """Custom TextArea that handles Enter for submission and allows multiline input."""
 
     class Submitted(Message):
         """Message sent when the text area is submitted with Enter."""
@@ -224,30 +224,37 @@ class CustomTextArea(TextArea):
             self.text_area = text_area
             super().__init__()
 
-    def on_key(self, event: events.Key) -> None:
-        """Handle key events before TextArea processes them.
+    # Override bindings to remove default Enter behavior
+    BINDINGS = []
 
-        Args:
-            event: Key event
-        """
-        # Intercept Ctrl+J for newline FIRST (before checking Enter)
-        if event.key == "j" and event.ctrl:
-            self.insert_text_at_selection("\n")
-            event.prevent_default()
-            event.stop()
-            return
+    def action_submit(self) -> None:
+        """Submit the text area content."""
+        self.post_message(self.Submitted(self))
 
-        # Intercept Enter to prevent newline and submit
+    def _on_key(self, event: events.Key) -> None:
+        """Internal key handler - intercepts before default TextArea processing."""
+        # Debug: Log key presses that contain 'enter' to help diagnose Shift+Enter
+        if "enter" in event.key or "return" in event.key:
+            self.log(f"Key received: {event.key!r}, aliases: {event.aliases}")
+
+        # Check for Enter key (without modifiers)
         if event.key == "enter":
-            # Send custom submit message to parent
-            self.post_message(self.Submitted(self))
+            # Plain Enter - submit the message
             event.prevent_default()
             event.stop()
+            self.action_submit()
             return
 
-        # Let TextArea handle all other keys
-        # Don't call super().on_key() - it will bubble to parent
-        # TextArea handles keys internally
+        # Ctrl+J or Shift+Enter - insert newline
+        if event.key in ("ctrl+j", "shift+enter", "ctrl+m"):
+            event.prevent_default()
+            event.stop()
+            # Insert newline using TextArea's replace method
+            self.replace("\n", self.selection.end, self.selection.end)
+            return
+
+        # For all other keys, let TextArea handle them normally
+        super()._on_key(event)
 
 
 class CDDAgentTUI(App):

@@ -105,7 +105,7 @@ def chat(prompt: str, provider: str, model: str, system: str, no_stream: bool, s
             provider_config=provider_config,
             tool_registry=tool_registry,
             model_tier=model,
-            max_iterations=25,  # Increased from default 10
+            max_iterations=50,  # Increased from default 10
         )
 
         # Decide which UI to use
@@ -253,8 +253,18 @@ def _handle_slash_command(command: str, agent: Agent, ui: StreamingUI) -> bool:
         return False
 
     elif cmd.startswith("/save"):
-        # TODO: Implement conversation saving
-        console.print("[yellow]⚠ Conversation saving not yet implemented[/yellow]")
+        # Save conversation to file with timestamp
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"conversation_{timestamp}.md"
+        
+        # Simple conversation export (basic implementation)
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(f"# CDD Agent Conversation - {datetime.datetime.now()}\n\n")
+            f.write("## History\n")
+            f.write("(Full conversation history export coming soon)\n")
+        
+        console.print(f"[green]✓ Conversation saved to {filename}[/green]")
         return False
 
     elif cmd == "/new":

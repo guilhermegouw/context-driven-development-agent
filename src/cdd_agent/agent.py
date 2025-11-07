@@ -86,7 +86,19 @@ class Agent:
                 max_tokens=4096,
                 messages=self.messages,
                 tools=self.tool_registry.get_schemas(),
-                system=system_prompt or "You are a helpful AI coding assistant.",
+                system=system_prompt or """You are a helpful AI coding assistant with access to tools that can read files, write files, search code, and execute commands.
+
+When users ask you to:
+- Read, view, or examine files → use the read_file tool
+- Search for files or patterns → use glob_files or grep_files  
+- Write or create files → use the write_file tool
+- Edit existing files → use the edit_file tool
+- Run commands or scripts → use the run_bash tool
+- Check git status or changes → use git_status, git_diff, or git_log
+
+IMPORTANT: Always use tools when appropriate. Don't just tell the user what you would do - actually do it using the available tools.
+
+Be proactive and helpful. If a user's request is ambiguous, ask for clarification, but if they clearly want to interact with files or the system, use the tools.""",
             )
 
             # Check stop reason
@@ -215,7 +227,19 @@ class Agent:
                 max_tokens=4096,
                 messages=self.messages,
                 tools=self.tool_registry.get_schemas(),
-                system=system_prompt or "You are a helpful AI coding assistant.",
+                system=system_prompt or """You are a helpful AI coding assistant with access to tools that can read files, write files, search code, and execute commands.
+
+When users ask you to:
+- Read, view, or examine files → use the read_file tool
+- Search for files or patterns → use glob_files or grep_files  
+- Write or create files → use the write_file tool
+- Edit existing files → use the edit_file tool
+- Run commands or scripts → use the run_bash tool
+- Check git status or changes → use git_status, git_diff, or git_log
+
+IMPORTANT: Always use tools when appropriate. Don't just tell the user what you would do - actually do it using the available tools.
+
+Be proactive and helpful. If a user's request is ambiguous, ask for clarification, but if they clearly want to interact with files or the system, use the tools.""",
             ) as stream:
                 # Accumulate response
                 accumulated_text = []

@@ -1,300 +1,772 @@
-# CDD Agent Roadmap
+# CDD Agent Roadmap v2.0
 
-**Vision**: Build a monetizable, LLM-agnostic AI coding assistant with structured CDD workflows.
+**Vision**: Build the world's first LLM-agnostic AI coding assistant with structured CDD workflows - combining the polish of Claude Code with the structured methodology of Context-Driven Development.
 
 **Time Budget**: 10-15 hours/week (nights & weekends)
-**Target**: Monetizable MVP in 8 weeks (60-120 hours total)
+**Target**: Production-ready 1.0 release in 10-12 weeks (~100-150 hours total)
 
 ---
 
-## ✅ Phase 0: Foundation (COMPLETED)
+## Current Status: v0.0.2 ✅
 
-**Status**: ✅ Done
-**Time Invested**: ~8-10 hours
+**What we've accomplished:**
+- ✅ Multi-provider architecture (Anthropic, OpenAI, custom endpoints)
+- ✅ Full authentication and configuration system
+- ✅ Working agent loop with tool execution
+- ✅ Beautiful Textual TUI with split-pane interface
+- ✅ Token-by-token streaming responses
+- ✅ Basic tool suite (read_file, write_file, list_files, run_bash)
+- ✅ Simple streaming UI fallback mode
+- ✅ Published to PyPI (installable via `pip install cdd-agent`)
 
-### Deliverables
-- [x] Poetry project setup with PyPI metadata
-- [x] Package structure (`src/cdd_agent/`)
-- [x] Configuration management (`config.py`)
-- [x] Authentication system (`auth.py`)
-- [x] CLI with auth commands (`cli.py`)
-- [x] Comprehensive README
-- [x] MIT License
-- [x] Multi-provider support (Anthropic, OpenAI, custom)
-- [x] Model tier abstraction (small/mid/big)
-- [x] Environment variable overrides
-
-### What Users Can Do Now
+**What users can do today:**
 ```bash
-pip install cdd-agent  # (after publishing)
-cdd-agent auth setup   # Configure providers
-cdd-agent auth status  # View configuration
-cdd-agent auth test    # Validate credentials
+pip install cdd-agent
+cdd-agent auth setup          # Configure providers
+cdd-agent chat                # Full TUI with streaming AI agent
+cdd-agent chat --simple       # Simple streaming UI
+cdd-agent chat "Quick task"   # Single-shot execution
 ```
 
+**The Gap**: We're ahead on UI/UX but missing advanced tools and the CDD workflow integration. Our roadmap needs to focus on three parallel tracks: **Core UX** (Claude Code parity), **CDD Workflow** (unique differentiation), and **Polish** (production-ready).
+
 ---
 
-## 🚀 Phase 1: Basic Agent Loop (Weeks 1-2)
+## Strategic Approach: Three Parallel Tracks
 
-**Goal**: Create a working conversational AI agent
-**Time Estimate**: 20-30 hours
+### 🎯 Track 1: Core UX (Claude Code Parity)
+**Goal**: Match Claude Code's developer experience
+- Advanced tools (Glob, Grep, Edit, Git)
+- Tool approval system with security warnings
+- Context file auto-loading
+- Background command execution
+- MCP protocol support
+
+### 🧠 Track 2: CDD Workflow (Unique Differentiation)
+**Goal**: Implement structured CDD methodology
+- Socrates agent (guided spec generation)
+- Planner agent (implementation planning)
+- Executor agent (context-aware implementation)
+- Hierarchical context management
+- Ticket folder conventions
+
+### 💎 Track 3: Polish & Productization
+**Goal**: Production-ready stability
+- Comprehensive test coverage
+- Conversation persistence
+- Usage analytics and cost tracking
+- Performance optimization
+- Documentation and examples
+
+---
+
+## Phase 1: Production-Ready Core (Weeks 1-3)
+
+**Goal**: Make what we have rock-solid and feature-complete
+**Time Estimate**: 30-40 hours
 **Status**: 🔜 Next Up
 
-### Week 1: Core Agent Loop (10-15 hours)
+### Week 1: Advanced Tools (12-15 hours)
 
 #### Tasks
-- [ ] Create `agent.py` with minimal conversation loop
-  - Message history management
-  - LLM API integration (Anthropic SDK)
-  - Tool use detection and execution
-  - Iteration loop until completion
-- [ ] Implement `ToolRegistry` in `tools.py`
-  - Auto-generate tool schemas from Python functions
-  - Tool registration decorator
-  - Tool execution with error handling
-- [ ] Add 3 basic tools:
-  - `read_file(path: str)` - Read file contents
-  - `write_file(path: str, content: str)` - Write to file
-  - `run_bash(command: str)` - Execute shell commands
-- [ ] Create `cdd-agent chat` command
-  - Non-streaming mode (simple text output)
-  - Basic error handling
+- [ ] Implement `Glob` tool (file pattern matching)
+  - Support glob patterns like `**/*.py`, `src/**/*.ts`
+  - Respect `.gitignore` patterns
+  - Return sorted results by modification time
+  - Add tests with various pattern types
+
+- [ ] Implement `Grep` tool (code search)
+  - Regex pattern matching across files
+  - File type filtering (e.g., `--type py`)
+  - Context lines (before/after matches)
+  - Line number reporting
+  - Add tests with complex patterns
+
+- [ ] Implement `Edit` tool (surgical file edits)
+  - Line range editing (not full file rewrites)
+  - Find/replace within ranges
+  - Diff preview before applying
+  - Atomic operations (rollback on error)
+  - Add tests with edge cases (EOF, empty files, etc.)
+
+- [ ] Add `git_status`, `git_diff`, `git_log` tools
+  - Wrapper around git commands
+  - Structured output parsing
+  - Error handling for non-git directories
+  - Add tests with mocked git repos
 
 #### Success Criteria
 ```bash
-cdd-agent chat "Read src/main.py and summarize it"
-# Should: read the file, send to LLM, return summary
+cdd-agent chat "Find all Python files with TODO comments"
+# Uses Glob + Grep tools correctly
 
-cdd-agent chat "Create a hello.py file that prints Hello World"
-# Should: use write_file tool, create the file
+cdd-agent chat "Change all instances of 'old_name' to 'new_name' in auth.py"
+# Uses Edit tool with line ranges, not full rewrites
+
+cdd-agent chat "What changed in the last commit?"
+# Uses git_log and git_diff tools
 ```
 
-### Week 2: LLM Provider Abstraction (10-15 hours)
-
-#### Tasks
-- [ ] Create `LLMProvider` interface in `providers.py`
-  - Abstract base class for all providers
-  - Methods: `create_message()`, `stream_message()`
-- [ ] Implement `AnthropicProvider`
-  - Use existing Anthropic SDK
-  - Tool use support
-  - Streaming support
-- [ ] Implement `OpenAIProvider`
-  - Translate Anthropic tool format to OpenAI
-  - Handle response differences
-  - Streaming support
-- [ ] Add provider selection to chat command
-  - `--provider` flag
-  - Read from config default
-  - Environment variable override
-
-#### Success Criteria
-```bash
-# Use Claude
-cdd-agent chat "Write a Python function to calculate factorial"
-
-# Use GPT
-cdd-agent chat --provider openai "Same task"
-
-# Use custom provider
-export CDD_PROVIDER=custom
-cdd-agent chat "Same task"
-```
-
-#### Deliverable: Working Agent
-- Can have conversations with any configured LLM
-- Can execute basic file and shell tools
-- Provider-agnostic architecture
-- Ready for UI improvements
+#### Deliverable
+- 8+ production-ready tools
+- Tool approval system architecture designed
+- Test coverage for all tools
 
 ---
 
-## 🎨 Phase 2: UX & Polish (Weeks 3-4)
-
-**Goal**: Beautiful terminal UX with streaming responses
-**Time Estimate**: 20-30 hours
-
-### Week 3: Streaming UI (10-15 hours)
+### Week 2: Tool Approval & Safety (10-12 hours)
 
 #### Tasks
-- [ ] Create `ui.py` with Rich streaming components
-  - Live markdown rendering
-  - Syntax highlighting for code blocks
-  - Tool execution progress indicators
-  - Spinner for LLM thinking time
-- [ ] Update `agent.py` for streaming
-  - Stream LLM responses token-by-token
-  - Update UI in real-time
-  - Handle tool use in streaming mode
-- [ ] Add conversation display
-  - Color-coded messages (user vs assistant)
-  - Formatted tool executions
-  - Pretty error messages
-- [ ] Improve chat command UX
-  - Multi-line input support
-  - `/help`, `/clear`, `/quit` commands
-  - Ctrl+C graceful exit
+- [ ] Design tool approval system
+  - Three approval modes:
+    - `paranoid`: Ask for every tool execution
+    - `balanced`: Auto-approve reads, ask for writes (default)
+    - `trusting`: Remember approvals per session
+  - Configure via settings.json and CLI flag
+
+- [ ] Implement approval UI
+  - Show tool name, args, and potential impact
+  - Color-coded risk levels (green=safe, yellow=caution, red=danger)
+  - Options: Allow, Deny, Allow for session, Always allow
+  - Store decisions in session memory
+
+- [ ] Add security warnings
+  - Detect dangerous operations:
+    - `rm -rf`, `dd`, destructive git commands
+    - File writes outside project directory
+    - Bash commands with `sudo`
+    - API calls to external services
+  - Show prominent warnings with confirmation
+
+- [ ] Add `git_commit` tool with safeguards
+  - Show diff preview before committing
+  - Require explicit approval
+  - Validate commit message format
+  - Option to abort and edit message
 
 #### Success Criteria
-- Responses stream in real-time (like ChatGPT)
-- Code blocks have syntax highlighting
-- Tool executions show progress
-- Beautiful, polished terminal experience
+```bash
+# Balanced mode (default)
+cdd-agent chat "Read config.py"
+# ✓ Auto-approved (read-only)
 
-### Week 4: Conversation Management (10-15 hours)
+cdd-agent chat "Delete all .pyc files"
+# ⚠ Shows approval prompt with file list
+
+# Paranoid mode
+cdd-agent chat --approval paranoid "List files"
+# ⚠ Asks for approval even for list_files
+
+# Trusting mode
+cdd-agent chat --approval trusting "Refactor authentication"
+# ✓ Remembers approval for file writes in this session
+```
+
+#### Deliverable
+- Flexible approval system with 3 modes
+- Security warnings for dangerous operations
+- User settings for default mode
+- Test coverage for approval logic
+
+---
+
+### Week 3: Context Loading & Performance (8-10 hours)
 
 #### Tasks
-- [ ] Implement conversation persistence
-  - Save conversations to `~/.cdd-agent/conversations/`
-  - JSON format with metadata (date, provider, model, cost)
-  - Auto-save after each message
-- [ ] Add conversation commands
+- [ ] Implement hierarchical context loading
+  - Load `CLAUDE.md` from project root (if exists)
+  - Load `CDD.md` from project root (if exists)
+  - Load ticket-specific context from `specs/tickets/<ticket>/context.md`
+  - Merge contexts in order: global → project → ticket
+  - Inject into system prompt automatically
+
+- [ ] Add context file discovery
+  - Search upward from CWD to find project root
+  - Detect git root as project boundary
+  - Cache loaded contexts per session
+  - Add `--no-context` flag to disable
+
+- [ ] Optimize startup time
+  - Lazy-load provider SDKs (anthropic, openai)
+  - Cache config file reads
+  - Profile import times
+  - Target: <200ms for `cdd-agent --help`
+
+- [ ] Optimize streaming performance
+  - Batch UI updates (don't render every token)
+  - Use Textual's reactive patterns efficiently
+  - Profile memory usage during long conversations
+  - Target: <100MB memory for 50-turn conversation
+
+- [ ] Add background bash execution
+  - Run long commands (tests, builds) in background
+  - Stream output to UI in real-time
+  - Allow interruption (Ctrl+C)
+  - Return exit code and full output
+
+#### Success Criteria
+```bash
+# Context loading
+cd ~/my-project/
+echo "Project context for my-project" > CLAUDE.md
+cdd-agent chat "What is this project about?"
+# Agent responds using CLAUDE.md context
+
+# Background execution
+cdd-agent chat "Run the test suite"
+# Executes pytest in background, streams output live
+
+# Performance
+time cdd-agent --help
+# Returns in <200ms
+```
+
+#### Deliverable
+- Automatic context file loading
+- Background bash execution
+- Startup time <200ms
+- Memory usage optimized
+- All features tested
+
+---
+
+### 🎯 Phase 1 Checkpoint: Production-Ready Core
+
+**Expected State After Week 3:**
+- ✅ 10+ professional tools (Glob, Grep, Edit, Git, etc.)
+- ✅ Smart approval system with security warnings
+- ✅ Automatic context loading from CLAUDE.md/CDD.md
+- ✅ Background command execution
+- ✅ Fast startup (<200ms) and efficient memory usage
+- ✅ Test coverage >70% for core functionality
+
+**Ready for**: Daily use as a Claude Code alternative, CDD workflow integration
+
+---
+
+## Phase 2: CDD Workflow Integration (Weeks 4-6)
+
+**Goal**: Implement the unique CDD methodology
+**Time Estimate**: 30-40 hours
+**Status**: 📋 Planned
+
+### Week 4: Agent Architecture (12-15 hours)
+
+#### Tasks
+- [ ] Create `agents/` module structure
+  ```
+  src/cdd_agent/agents/
+  ├── __init__.py
+  ├── base.py          # BaseAgent class
+  ├── socrates.py      # Spec generation agent
+  ├── planner.py       # Planning agent
+  ├── executor.py      # Execution agent
+  └── prompts/         # System prompts
+      ├── socrates.md
+      ├── planner.md
+      └── executor.md
+  ```
+
+- [ ] Design BaseAgent abstraction
+  - Common interface: `run()`, `stream()`, `load_context()`
+  - System prompt loading from markdown files
+  - Specialized tool subsets per agent
+  - Conversation state management
+
+- [ ] Port Socrates system prompt
+  - Extract from your existing CDD framework
+  - Adapt for agent system prompt format
+  - Define Socrates-specific tools (if any)
+  - Test conversation flow
+
+- [ ] Port Planner system prompt
+  - Extract from your existing CDD framework
+  - Adapt for agent system prompt format
+  - Add planning-specific tools (code analysis, estimation)
+  - Test plan generation
+
+- [ ] Create Executor agent
+  - System prompt for implementation mode
+  - Load spec.yaml and plan.md as context
+  - Track progress against plan steps
+  - Save implementation notes
+
+#### Success Criteria
+- Clean agent abstraction with reusable base class
+- Three specialized agents (Socrates, Planner, Executor)
+- System prompts loaded from markdown files
+- Each agent tested with sample conversations
+
+#### Deliverable
+- `agents/` module with three working agents
+- BaseAgent abstraction for extensibility
+- System prompts as editable markdown files
+- Unit tests for agent initialization
+
+---
+
+### Week 5: CDD CLI Commands (10-12 hours)
+
+#### Tasks
+- [ ] Add `cdd-agent socrates` command
+  - Interactive spec generation mode
+  - Guided conversation flow
+  - Save to `specs/tickets/<ticket-name>/spec.yaml`
+  - Auto-create ticket folder structure
+  - Validate spec format before saving
+
+- [ ] Add `cdd-agent plan` command
+  - Load spec from `specs/tickets/<ticket>/spec.yaml`
+  - Generate implementation plan
+  - Save to `specs/tickets/<ticket>/plan.md`
+  - Show plan preview before saving
+  - Support plan regeneration (with diff)
+
+- [ ] Add `cdd-agent exec` command
+  - Load spec.yaml + plan.md as context
+  - Execute implementation with full context
+  - Track progress (checkboxes in plan.md)
+  - Save session transcript to `specs/tickets/<ticket>/session.md`
+  - Mark plan steps as completed
+
+- [ ] Add ticket folder conventions
+  ```
+  specs/tickets/<ticket-name>/
+  ├── spec.yaml          # Generated by socrates
+  ├── plan.md            # Generated by planner
+  ├── session.md         # Execution transcript
+  ├── context.md         # Additional context (optional)
+  └── artifacts/         # Code snippets, diagrams, etc.
+  ```
+
+#### Success Criteria
+```bash
+# Full CDD workflow
+cdd-agent socrates add-user-authentication
+# Guided conversation, saves to specs/tickets/add-user-authentication/spec.yaml
+
+cdd-agent plan add-user-authentication
+# Reads spec, generates plan, saves to plan.md
+
+cdd-agent exec add-user-authentication
+# Implements with full spec + plan context
+# Updates plan.md with progress checkboxes
+```
+
+#### Deliverable
+- Three new CLI commands (socrates, plan, exec)
+- Ticket folder structure automatically created
+- Spec and plan file formats defined
+- End-to-end CDD workflow functional
+
+---
+
+### Week 6: Hierarchical Context & Progress Tracking (8-10 hours)
+
+#### Tasks
+- [ ] Implement context hierarchy
+  - **Global**: `~/.cdd-agent/global-context.md` (personal preferences)
+  - **Project**: `./CLAUDE.md` or `./CDD.md` (project constitution)
+  - **Ticket**: `./specs/tickets/<ticket>/context.md` (ticket-specific)
+  - Load and merge in order (global → project → ticket)
+  - Show loaded contexts in UI (status bar or header)
+
+- [ ] Add progress tracking
+  - Parse plan.md for task list (markdown checkboxes)
+  - Update checkboxes as agent completes tasks
+  - Show progress percentage in UI
+  - Save completed state back to plan.md
+
+- [ ] Add session transcripts
+  - Save full conversation to `session.md`
+  - Include timestamps, model used, token counts
+  - Format as readable markdown
+  - Append to existing session (resumable)
+
+- [ ] Add CDD status command
+  - `cdd-agent status` shows:
+    - Current ticket (if in ticket folder)
+    - Spec completion status
+    - Plan completion progress
+    - Last session timestamp
+    - Total tokens/cost for ticket
+
+#### Success Criteria
+```bash
+# Hierarchical context
+echo "Always use type hints" > ~/.cdd-agent/global-context.md
+echo "This is a Flask app" > CLAUDE.md
+echo "Use JWT for auth" > specs/tickets/add-auth/context.md
+
+cdd-agent exec add-auth
+# Agent sees all three contexts merged
+
+# Progress tracking
+cdd-agent exec add-auth
+# Agent completes tasks, plan.md checkboxes update automatically
+
+# Status
+cdd-agent status
+# Shows:
+# Ticket: add-auth
+# Spec: ✓ Complete
+# Plan: 3/5 tasks (60%)
+# Last session: 2025-11-07 14:32
+# Total cost: $0.42
+```
+
+#### Deliverable
+- Hierarchical context system working
+- Automatic progress tracking in plan.md
+- Session transcripts saved
+- Status command for ticket overview
+
+---
+
+### 🎯 Phase 2 Checkpoint: CDD Workflow Integration Complete
+
+**Expected State After Week 6:**
+- ✅ Three specialized agents (Socrates, Planner, Executor)
+- ✅ Full CDD workflow: `socrates → plan → exec`
+- ✅ Hierarchical context loading (global → project → ticket)
+- ✅ Automatic progress tracking
+- ✅ Session transcripts and status reporting
+- ✅ Ticket folder conventions established
+
+**Ready for**: Real-world use of CDD methodology with AI assistance
+
+---
+
+## Phase 3: Advanced Features & Polish (Weeks 7-9)
+
+**Goal**: Production-ready stability and advanced features
+**Time Estimate**: 30-40 hours
+**Status**: 📋 Planned
+
+### Week 7: MCP Support & Extensibility (12-15 hours)
+
+#### Tasks
+- [ ] Research MCP (Model Context Protocol)
+  - Review Anthropic's MCP specification
+  - Study existing MCP servers (GitHub, Slack, etc.)
+  - Identify integration points in our architecture
+
+- [ ] Implement MCP client
+  - Load MCP server configurations from settings
+  - Connect to MCP servers (local and remote)
+  - Discover available tools from MCP servers
+  - Proxy tool calls to MCP servers
+  - Handle authentication (if required)
+
+- [ ] Add MCP server registry
+  - Built-in servers: filesystem, git, web-search
+  - Configuration format in settings.json
+  - Enable/disable servers per session
+  - Auto-discover local MCP servers
+
+- [ ] Create MCP tool wrapper
+  - Translate MCP tool schemas to our format
+  - Wrap MCP tool execution in our approval system
+  - Handle errors and timeouts gracefully
+  - Add logging for debugging
+
+#### Success Criteria
+```bash
+# Configure MCP server
+cdd-agent config add-mcp github
+# Adds GitHub MCP server to settings
+
+# Use MCP tools
+cdd-agent chat "Create a new GitHub issue"
+# Agent discovers and uses GitHub MCP tools
+
+cdd-agent chat "Search the web for Python best practices"
+# Uses web-search MCP server
+```
+
+#### Deliverable
+- MCP client implementation
+- Support for multiple MCP servers
+- Tool discovery and execution via MCP
+- Configuration and management commands
+- **Huge differentiator**: First LLM-agnostic tool with MCP support
+
+---
+
+### Week 8: Conversation Persistence & Analytics (10-12 hours)
+
+#### Tasks
+- [ ] Implement conversation storage
+  - Save to `~/.cdd-agent/conversations/<id>.json`
+  - Include metadata: timestamp, provider, model, tokens, cost
+  - Store full message history (user + assistant)
+  - Index by date, provider, ticket (if applicable)
+
+- [ ] Add conversation management commands
   - `cdd-agent conversations list` - Show all conversations
   - `cdd-agent conversations show <id>` - Display conversation
   - `cdd-agent conversations resume <id>` - Continue conversation
   - `cdd-agent conversations delete <id>` - Remove conversation
-- [ ] Add token counting and cost estimation
+  - `cdd-agent conversations export <id>` - Export as markdown
+
+- [ ] Implement token counting
   - Track input/output tokens per message
   - Calculate cost per provider/model
-  - Display running total
-- [ ] Add `/save`, `/load`, `/new` slash commands
-  - In-conversation management
-  - Named conversations (optional)
+  - Running total in conversation metadata
+  - Display in status bar during chat
+
+- [ ] Add analytics dashboard
+  - `cdd-agent stats` command shows:
+    - Total conversations
+    - Total tokens used
+    - Total cost (by provider)
+    - Average conversation length
+    - Most used tools
+    - Daily/weekly usage trends
+  - Optional: Export to CSV for analysis
 
 #### Success Criteria
 ```bash
-# Start conversation
+# Auto-save conversations
 cdd-agent chat "Help me build a web app"
-# ... conversation happens, auto-saved ...
+# Conversation auto-saved to ~/.cdd-agent/conversations/abc123.json
 
-# List conversations
+# Resume later
 cdd-agent conversations list
 # Shows: ID, Date, Provider, Messages, Cost
 
-# Resume later
 cdd-agent conversations resume abc123
 # Continues where you left off
+
+# Analytics
+cdd-agent stats
+# Shows usage statistics and costs
 ```
 
-#### Deliverable: Production-Ready Chat
-- Beautiful streaming UI
-- Persistent conversation history
-- Token/cost tracking
-- Professional terminal experience
+#### Deliverable
+- Conversation persistence
+- Management commands (list, resume, delete, export)
+- Token counting and cost tracking
+- Analytics dashboard
 
 ---
 
-## 🛠️ Phase 3: Advanced Tools & CDD Integration (Weeks 5-6)
-
-**Goal**: Integrate CDD workflow and advanced tools
-**Time Estimate**: 20-30 hours
-
-### Week 5: Advanced Tools (10-15 hours)
+### Week 9: Performance, Tests & Documentation (8-10 hours)
 
 #### Tasks
-- [ ] Add search/grep tools
-  - `grep_files(pattern: str, path: str)` - Search in files
-  - `find_files(pattern: str, path: str)` - Find files by name
-  - `list_directory(path: str)` - List directory contents
-- [ ] Add git tools
-  - `git_status()` - Show git status
-  - `git_diff(file: str)` - Show file changes
-  - `git_commit(message: str, files: list)` - Commit changes
-- [ ] Add codebase mapping tool
-  - `map_codebase(path: str)` - Generate file tree
-  - Include file counts, sizes, languages
-  - Respect .gitignore patterns
-- [ ] Implement tool approval flow
-  - Ask before executing destructive commands
-  - Auto-approve safe operations (read-only)
-  - Remember approvals for session
-  - Security warnings for dangerous operations
+- [ ] Comprehensive test suite
+  - Unit tests for all tools (80%+ coverage)
+  - Integration tests for agent loops
+  - Mock LLM responses for reproducibility
+  - Test all CLI commands
+  - Test approval system flows
+  - Test context loading
+  - Set up CI with pytest
+
+- [ ] Performance optimization
+  - Profile startup time (target <200ms)
+  - Profile memory usage (target <100MB baseline)
+  - Optimize TUI rendering
+  - Lazy-load heavy dependencies
+  - Cache frequently-read files
+
+- [ ] Error handling improvements
+  - Graceful degradation on API errors
+  - Retry logic with exponential backoff
+  - Clear error messages for common issues
+  - Network timeout handling
+  - Partial response handling
+
+- [ ] Documentation
+  - Update README with all features
+  - Create GETTING_STARTED.md
+  - Write tool documentation
+  - Document CDD workflow with examples
+  - Create troubleshooting guide
+  - Record demo videos (optional)
 
 #### Success Criteria
-```bash
-cdd-agent chat "Find all Python files with 'TODO' comments"
-# Uses grep_files + find_files
+- Test coverage >80% (measured by pytest-cov)
+- All CI checks passing (Black, Ruff, pytest, mypy)
+- Startup time <200ms consistently
+- Memory usage <100MB for typical sessions
+- Comprehensive documentation
 
-cdd-agent chat "Refactor all authentication code to use new API"
-# Multi-file changes with approval flow
-```
-
-### Week 6: CDD Workflow Integration (10-15 hours)
-
-#### Tasks
-- [ ] Port Socrates agent
-  - Load `socrates.md` prompt from your existing CDD framework
-  - Implement as specialized agent mode
-  - `cdd-agent socrates <spec-file>` command
-  - Guided conversation for spec creation
-- [ ] Port Plan generator
-  - Load `plan.md` prompt
-  - `cdd-agent plan <spec-file>` command
-  - Generate implementation plans from specs
-  - Save to `plan.md` in ticket folder
-- [ ] Add context loading
-  - Read `CLAUDE.md` / `CDD.md` files
-  - Include in system prompt automatically
-  - Hierarchical loading (global → project → ticket)
-- [ ] Create `cdd-agent exec <ticket>` command
-  - Load spec + plan as context
-  - Execute implementation with full context
-  - Track progress in ticket folder
-
-#### Success Criteria
-```bash
-# CDD workflow works standalone
-cdd-agent socrates specs/tickets/feature-auth/spec.yaml
-# Guided conversation, builds spec
-
-cdd-agent plan specs/tickets/feature-auth/spec.yaml
-# Generates detailed plan
-
-cdd-agent exec specs/tickets/feature-auth
-# Implements based on spec + plan
-```
-
-#### Deliverable: CDD-Powered Agent
-- All your existing CDD agents work
-- Context management from CLAUDE.md
-- Structured workflow (spec → plan → exec)
-- Advanced tools for complex refactors
-- Security via approval flow
+#### Deliverable
+- Production-ready test suite
+- Performance benchmarks met
+- Robust error handling
+- Professional documentation
 
 ---
 
-## 💰 Phase 4: Monetization & Launch (Weeks 7-8)
+### 🎯 Phase 3 Checkpoint: Production-Ready Product
 
-**Goal**: Prepare for market and launch
+**Expected State After Week 9:**
+- ✅ MCP protocol support (unique feature!)
+- ✅ Conversation persistence and analytics
+- ✅ Test coverage >80%
+- ✅ Performance optimized (<200ms startup, <100MB memory)
+- ✅ Comprehensive documentation
+- ✅ Ready for 1.0.0 release
+
+**Ready for**: Public launch and user feedback
+
+---
+
+## Phase 4: Launch & Growth (Weeks 10-12)
+
+**Goal**: Release 1.0.0 and build initial user base
 **Time Estimate**: 20-30 hours
+**Status**: 📋 Planned
 
-### Week 7: Cloud Integration (10-15 hours)
+### Week 10: Pre-Launch Polish (10-12 hours)
 
 #### Tasks
-- [ ] Add usage tracking/analytics
-  - Log API calls, tokens, costs
-  - Store locally in SQLite
-  - Optional telemetry (opt-in)
-- [ ] Implement license key validation
-  - Support for free tier (50 conversations/month)
-  - Pro tier ($10-15/month) - unlimited
-  - Validate keys against backend API
-- [ ] Add cloud conversation sync (optional)
-  - Sync conversations to cloud storage
-  - Access from multiple machines
-  - End-to-end encryption
-- [ ] Create update mechanism
-  - Check for new versions on startup
-  - `cdd-agent update` command
-  - Notify users of new features
+- [ ] Final bug bash
+  - Test all features end-to-end
+  - Fix critical bugs
+  - Improve error messages
+  - Polish UI rough edges
 
-#### Monetization Tiers
+- [ ] Create launch materials
+  - Landing page (static site or GitHub Pages)
+  - Demo videos/GIFs (asciinema or screen recordings)
+  - Feature comparison table (vs Claude Code, Cursor)
+  - Pricing page (if monetizing)
+
+- [ ] Prepare PyPI release
+  - Update version to 1.0.0
+  - Write comprehensive CHANGELOG
+  - Update classifiers to "Production/Stable"
+  - Test installation on clean environments
+  - Prepare release notes
+
+- [ ] Community setup
+  - GitHub Discussions for Q&A
+  - Contributing guidelines
+  - Code of conduct
+  - Issue templates
+
+#### Deliverable
+- Landing page with demos
+- PyPI 1.0.0 release ready
+- Community infrastructure
+
+---
+
+### Week 11: Launch (6-8 hours)
+
+#### Tasks
+- [ ] Publish to PyPI
+  - `poetry publish -r pypi`
+  - Test installation: `pip install cdd-agent`
+  - Verify all dependencies resolve
+
+- [ ] Launch announcements
+  - Product Hunt (prepare ahead of time)
+  - Hacker News "Show HN: CDD Agent - LLM-agnostic coding assistant"
+  - Reddit: r/python, r/programming, r/LocalLLaMA
+  - Twitter/X announcement thread
+  - Dev.to article explaining CDD workflow
+
+- [ ] Monitor and respond
+  - Watch for feedback on all platforms
+  - Respond to questions quickly
+  - Fix critical bugs immediately
+  - Update FAQ based on questions
+
+#### Success Criteria
+- Published to PyPI as 1.0.0
+- 100+ upvotes on Hacker News or Product Hunt
+- 50+ stars on GitHub
+- 10+ active users providing feedback
+
+#### Deliverable
+- Public 1.0.0 release
+- Active community forming
+- User feedback collected
+
+---
+
+### Week 12: Post-Launch Iteration (4-6 hours)
+
+#### Tasks
+- [ ] Address user feedback
+  - Fix bugs reported by users
+  - Implement quick wins (easy feature requests)
+  - Improve documentation based on questions
+  - Add FAQ entries
+
+- [ ] Refine onboarding
+  - Improve `cdd-agent auth setup` flow
+  - Add interactive tutorial
+  - Create example projects
+  - Write blog post: "Getting Started with CDD"
+
+- [ ] Plan next phase
+  - Prioritize feature requests
+  - Identify monetization opportunities
+  - Design team/enterprise features
+  - Roadmap for 1.1, 1.2, etc.
+
+#### Success Criteria
+- Critical bugs fixed within 48 hours
+- User satisfaction high (positive feedback ratio)
+- Clear roadmap for next features
+- Growing user base (50+ weekly active users)
+
+#### Deliverable
+- Stable 1.0.x release
+- Happy initial users
+- Roadmap for 1.1+
+
+---
+
+### 🎯 Phase 4 Checkpoint: Launched Product
+
+**Expected State After Week 12:**
+- ✅ PyPI 1.0.0 release live
+- ✅ 100+ GitHub stars
+- ✅ 50+ weekly active users
+- ✅ Positive community feedback
+- ✅ Clear roadmap for future development
+
+**Ready for**: Sustained growth and potential monetization
+
+---
+
+## Future Phases: Growth & Monetization (Months 4-6)
+
+### Month 4: Community & Ecosystem
+- [ ] Plugin system for community tools
+- [ ] Tool marketplace (community-contributed tools)
+- [ ] VS Code extension (optional)
+- [ ] JetBrains plugin (optional)
+- [ ] Custom slash commands from markdown files
+- **Goal**: 200+ active users, 500+ GitHub stars
+
+### Month 5: Team Features
+- [ ] Shared conversation libraries
+- [ ] Team analytics dashboard
+- [ ] Conversation templates
+- [ ] SSO/SAML for enterprise (if monetizing)
+- **Goal**: First enterprise pilot customer
+
+### Month 6: Monetization (Optional)
+- [ ] Cloud conversation sync (Pro tier)
+- [ ] Usage analytics dashboard (Pro tier)
+- [ ] Priority support (Pro tier)
+- [ ] On-premise deployment (Enterprise tier)
+- **Goal**: $500+ MRR or sustainable open-source project
+
+**Monetization Tiers** (if pursuing):
 ```
 FREE:
 - Unlimited usage with own API keys
 - Local conversations only
 - Community support
-- Open source core
+- All core features
 
 PRO ($10-15/month):
 - Cloud conversation sync
@@ -304,184 +776,145 @@ PRO ($10-15/month):
 
 ENTERPRISE ($500+/month):
 - On-premise deployment
-- Custom model fine-tuning
-- SLA support
+- SSO/SAML integration
 - Team features
+- SLA support
 ```
 
-### Week 8: Documentation & Launch (10-15 hours)
-
-#### Tasks
-- [ ] Comprehensive documentation
-  - Installation guide
-  - Configuration examples
-  - CDD workflow tutorial
-  - API reference for custom tools
-  - Video demos
-- [ ] Create landing page
-  - Features overview
-  - Pricing table
-  - Demo videos/GIFs
-  - Sign up for Pro tier
-- [ ] Set up payment processing
-  - Stripe integration
-  - License key generation API
-  - Customer portal
-- [ ] Publish to PyPI
-  - `poetry publish`
-  - Version 1.0.0 release
-- [ ] Launch!
-  - Product Hunt
-  - Hacker News Show HN
-  - Reddit (r/python, r/programming)
-  - Twitter/X announcement
-  - Email beta users
-
-#### Success Criteria
-- Published on PyPI: `pip install cdd-agent`
-- Landing page live with pricing
-- Payment processing working
-- 10+ beta users signed up
-- First paying customer ($10/month)
-
-#### Deliverable: Launched Product
-- Publicly available on PyPI
-- Monetization infrastructure
-- Marketing materials
-- Active user base
-- $100+ MRR target
-
 ---
 
-## 🔮 Phase 5: Growth & Features (Months 3-6)
+## Success Metrics
 
-**Post-Launch Improvements**
+### Week 3 (Phase 1 Complete)
+- ✅ 10+ professional tools
+- ✅ Smart approval system
+- ✅ Context loading working
+- ✅ Performance optimized
+- ✅ Test coverage >70%
 
-### Month 3: Polish & Feedback
-- [ ] User feedback implementation
-- [ ] Bug fixes and stability
-- [ ] Performance optimizations
-- [ ] Documentation improvements
-- **Goal**: 100 active users
+### Week 6 (Phase 2 Complete)
+- ✅ CDD workflow functional (socrates → plan → exec)
+- ✅ Three specialized agents
+- ✅ Hierarchical context system
+- ✅ Progress tracking
+- ✅ 5+ beta users testing CDD workflow
 
-### Month 4: Advanced Features
-- [ ] Full Textual TUI (split panes, file tree)
-- [ ] Multi-agent orchestration
-- [ ] Codebase embeddings for semantic search
-- [ ] VS Code extension
-- **Goal**: 500 active users, $500 MRR
+### Week 9 (Phase 3 Complete)
+- ✅ MCP support implemented
+- ✅ Conversation persistence
+- ✅ Test coverage >80%
+- ✅ Documentation complete
+- ✅ Ready for 1.0.0 release
 
-### Month 5: Team Features
-- [ ] Shared conversation libraries
-- [ ] Team analytics
-- [ ] SSO/SAML for enterprise
-- [ ] Custom tool marketplace
-- **Goal**: First enterprise customer
+### Week 12 (Phase 4 Complete - Launch)
+- ✅ PyPI 1.0.0 published
+- ✅ 100+ GitHub stars
+- ✅ 50+ weekly active users
+- ✅ Positive community feedback
+- ✅ Sustainable development model
 
-### Month 6: Ecosystem
-- [ ] MCP (Model Context Protocol) support
-- [ ] Plugin system for community tools
-- [ ] Integration marketplace
-- [ ] Mobile companion app
-- **Goal**: $2000 MRR, sustainable business
-
----
-
-## 🎯 Success Metrics
-
-### Week 6 (MVP)
-- ✅ Working CLI that can read/write/execute code
-- ✅ Streaming responses with beautiful UI
-- ✅ LLM-agnostic (Claude & GPT)
-- ✅ CDD workflow integrated
-- ✅ 10 beta users testing
-
-### Week 8 (Launch)
-- ✅ Published to PyPI
-- ✅ Landing page + pricing
-- ✅ Payment processing
-- ✅ First paying customer
-- ✅ $100 MRR
-
-### Month 3 (Traction)
-- ✅ 100 active users
-- ✅ $500 MRR
-- ✅ Positive user reviews
-- ✅ Low churn rate (<10%)
-
-### Month 6 (Sustainable)
+### Month 6 (Growth)
 - ✅ 500+ active users
-- ✅ $2000+ MRR
-- ✅ 1-2 enterprise customers
-- ✅ Active community
-- ✅ Profitable (covering costs + runway)
+- ✅ Active community (contributions, plugins)
+- ✅ Either: $500+ MRR or thriving open-source project
+- ✅ Established as viable Claude Code alternative
 
 ---
 
-## 🚧 Risks & Mitigations
+## Risk Mitigation
 
-### Risk: Burnout from Scope Creep
+### Risk: Scope Creep & Burnout
 **Mitigation**:
-- Stick to week-by-week plan religiously
-- Ship "embarrassingly simple" MVP at week 6
+- Stick to weekly plan religiously
+- Ship incremental releases (0.1.0, 0.2.0, etc.)
 - Use feature flags for incomplete features
-- Say no to non-essential features
+- Celebrate small wins to maintain motivation
+- Say no to non-essential features until 1.0
 
 ### Risk: Competition from Well-Funded Tools
 **Mitigation**:
-- Focus on niche: CDD workflow users
-- Emphasize open source + self-hosting
-- Build community early (Discord, GitHub)
-- Compete on workflow, not features
+- Focus on unique niche: CDD workflow + LLM-agnostic
+- Emphasize open source and self-hosting
+- Build community early (GitHub Discussions)
+- Compete on workflow and freedom, not features
+- Partner with LLM providers (not compete)
 
-### Risk: LLM API Changes
+### Risk: LLM API Changes Breaking Compatibility
 **Mitigation**:
-- Abstract provider interface from day 1 (✅ done)
+- Provider abstraction already implemented ✅
 - Write integration tests against live APIs
 - Version lock dependencies
-- Support multiple LLM versions
+- Support multiple LLM versions per provider
+- Graceful degradation on API errors
 
-### Risk: Monetization Resistance
+### Risk: Low User Adoption
 **Mitigation**:
-- Keep core open source forever
-- Only charge for cloud services
+- Target specific communities (CDD users, LLM enthusiasts)
+- Create compelling demos and use cases
+- Engage directly with early users for feedback
+- Focus on delightful UX (not just features)
+- Build in public (Twitter, blog posts)
+
+### Risk: Difficulty Monetizing Open Source
+**Mitigation**:
+- Keep core features open source forever
+- Only charge for cloud services (sync, analytics)
 - Generous free tier (unlimited with own keys)
-- Transparent pricing
+- Transparent pricing aligned with value
+- Alternative: Sustainable open-source without monetization
 
 ---
 
-## 📊 Progress Tracking
+## Key Learnings Applied
 
-**Current Phase**: Phase 0 ✅ (Foundation Complete)
-**Next Phase**: Phase 1 🔜 (Basic Agent Loop)
-**Hours Invested**: 8-10 hours
-**Hours Remaining to MVP**: 60-90 hours
-**Target MVP Date**: 6-8 weeks from now
+### From Claude Code
+- ✅ Settings.json pattern with env overrides
+- ✅ Model tier abstraction (small/mid/big)
+- ✅ Streaming token-by-token UI
+- 🔜 Advanced tool suite (Glob, Grep, Edit, Git)
+- 🔜 Tool approval system with security warnings
+- 🔜 Context file loading (CLAUDE.md)
+- 🔜 Background bash execution
 
-**Last Updated**: 2025-11-03
+### From Existing CDD Framework
+- ✅ Spec → Plan → Execute workflow
+- 🔜 Socrates agent for spec generation
+- 🔜 Planner agent for task breakdown
+- 🔜 Hierarchical context (global → project → ticket)
+- 🔜 Ticket folder conventions
+- 🔜 Progress tracking in plan.md
 
----
-
-## 🎓 Key Learnings
-
-### What We Learned from Gemini CLI
-- Tool registry pattern with auto-schema generation
-- Streaming UI is essential for good UX
-- Context management is critical for large codebases
-- React + Ink for terminal is powerful but complex (we chose Rich for Python)
-
-### What We Learned from Claude Code
-- Settings.json pattern with env overrides
-- Model tier abstraction (small/mid/big)
-- Custom commands as markdown files
-- Slash commands for in-conversation controls
-
-### Our Unique Approach
-- **LLM-agnostic from day one** (Gemini CLI is Gemini-first)
-- **Python ecosystem** (more accessible than TypeScript)
-- **CDD workflow built-in** (unique value proposition)
-- **Simpler architecture** (easier to understand and modify)
+### Our Unique Innovations
+- ✅ **LLM-agnostic architecture** (truly provider-independent)
+- ✅ **Python ecosystem** (more accessible than TypeScript)
+- ✅ **Textual TUI** (beautiful terminal UI)
+- 🔜 **MCP support** (first LLM-agnostic tool with MCP)
+- 🔜 **CDD workflow built-in** (unique methodology)
+- 🔜 **Specialized agents** (Socrates, Planner, Executor)
 
 ---
 
-**Next Step**: Start Week 1 - Build the core agent loop! 🚀
+## Progress Tracking
+
+**Current Phase**: Phase 0 ✅ (Foundation + Basic Agent + TUI Complete)
+**Next Phase**: Phase 1 🔜 (Production-Ready Core)
+**Next Task**: Week 1 - Implement advanced tools (Glob, Grep, Edit, Git)
+
+**Hours Invested**: ~15-20 hours
+**Hours to 1.0**: ~100-120 hours
+**Target 1.0 Date**: ~10-12 weeks from now (mid-January 2026)
+
+**Last Updated**: 2025-11-07
+
+---
+
+## Next Steps
+
+**This Week (Week 1 of Phase 1):**
+1. Implement `Glob` tool with pattern matching ✨
+2. Implement `Grep` tool with regex search ✨
+3. Implement `Edit` tool with line range editing ✨
+4. Add basic git tools (status, diff, log) ✨
+5. Write tests for all new tools ✨
+
+**Let's build something amazing!** 🚀
