@@ -216,7 +216,11 @@ class AuthManager:
         try:
             import anthropic
 
-            client = anthropic.Anthropic(api_key=api_key)
+            client = anthropic.Anthropic(
+                api_key=api_key,
+                max_retries=5,  # Increase from default 2 to handle overloaded errors
+                timeout=600.0,  # 10 minutes timeout for long-running requests
+            )
             # Try a minimal request
             client.messages.create(
                 model="claude-3-5-haiku-20241022",
