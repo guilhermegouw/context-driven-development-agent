@@ -9,10 +9,24 @@ This module handles:
 
 import json
 import os
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class ApprovalMode(str, Enum):
+    """Approval mode for tool execution.
+
+    - PARANOID: Ask for approval on every tool execution
+    - BALANCED: Auto-approve safe read-only tools, ask for writes
+    - TRUSTING: Remember approvals within session, minimal interruptions
+    """
+
+    PARANOID = "paranoid"
+    BALANCED = "balanced"
+    TRUSTING = "trusting"
 
 
 class ProviderConfig(BaseModel):
@@ -51,6 +65,7 @@ class Settings(BaseModel):
     version: str = "1.0"
     default_provider: str = "anthropic"
     providers: Dict[str, ProviderConfig]
+    approval_mode: ApprovalMode = ApprovalMode.BALANCED
     ui: Dict[str, Any] = Field(default_factory=dict)
     conversation: Dict[str, Any] = Field(default_factory=dict)
 
@@ -125,6 +140,7 @@ class ConfigManager:
         """
         settings = Settings(
             default_provider="anthropic",
+            approval_mode=ApprovalMode.BALANCED,
             providers={
                 "anthropic": ProviderConfig(
                     base_url="https://api.anthropic.com",
@@ -140,9 +156,7 @@ class ConfigManager:
         )
         return settings
 
-    def get_effective_config(
-        self, provider: Optional[str] = None
-    ) -> ProviderConfig:
+    def get_effective_config(self, provider: Optional[str] = None) -> ProviderConfig:
         """Get effective config with environment variable overrides.
 
         Args:
@@ -171,3 +185,49 @@ class ConfigManager:
             config_dict["api_key"] = env_api_key
 
         return ProviderConfig(**config_dict)
+
+    def get_effective_approval_mode(
+        self, override: Optional[str] = None
+    ) -> ApprovalMode:
+        """Get effective approval mode with environment variable and CLI override.
+
+        Priority order (highest to lowest):
+        1. CLI flag override (passed as parameter)
+        2. CDD_APPROVAL_MODE environment variable
+        3. Settings file value
+        4. Default (balanced)
+
+        Args:
+            override: CLI flag override (optional)
+
+        Returns:
+            ApprovalMode enum value
+
+        Raises:
+            ValueError: If invalid approval mode specified
+        """
+        settings = self.load()
+
+        # Priority 1: CLI flag override
+        if override:
+            try:
+                return ApprovalMode(override)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid approval mode: {override}. "
+                    f"Valid modes: {', '.join(m.value for m in ApprovalMode)}"
+                )
+
+        # Priority 2: Environment variable
+        env_mode = os.getenv("CDD_APPROVAL_MODE")
+        if env_mode:
+            try:
+                return ApprovalMode(env_mode)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid CDD_APPROVAL_MODE: {env_mode}. "
+                    f"Valid modes: {', '.join(m.value for m in ApprovalMode)}"
+                )
+
+        # Priority 3: Settings file
+        return settings.approval_mode

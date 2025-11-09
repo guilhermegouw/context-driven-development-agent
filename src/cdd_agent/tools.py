@@ -4,6 +4,7 @@ This module provides:
 - ToolRegistry: Register and execute tools
 - Auto-schema generation from function signatures
 - Basic file and shell tools
+- Risk-based tool classification for approval system
 """
 
 import fnmatch
@@ -11,18 +12,34 @@ import inspect
 import re
 import subprocess
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+# Import background execution components
+from .background_executor import get_background_executor, ProcessStatus
 
-def make_tool_schema(func: Callable) -> dict:
+
+class RiskLevel(str, Enum):
+    """Risk level classification for tools.
+
+    Used by the approval system to determine which tools need user approval.
+    """
+
+    SAFE = "safe"  # Read-only operations, no side effects
+    MEDIUM = "medium"  # File modifications, reversible changes
+    HIGH = "high"  # Dangerous operations, permanent changes
+
+
+def make_tool_schema(func: Callable, risk_level: RiskLevel = RiskLevel.SAFE) -> dict:
     """Auto-generate Anthropic tool schema from function signature.
 
     Args:
         func: Function to generate schema for
+        risk_level: Risk classification for approval system
 
     Returns:
-        Tool schema in Anthropic format
+        Tool schema in Anthropic format with risk metadata
     """
     sig = inspect.signature(func)
     params = {}
@@ -31,11 +48,11 @@ def make_tool_schema(func: Callable) -> dict:
     for name, param in sig.parameters.items():
         # Determine parameter type
         param_type = "string"  # Default
-        if param.annotation == int:
+        if param.annotation is int:
             param_type = "integer"
-        elif param.annotation == bool:
+        elif param.annotation is bool:
             param_type = "boolean"
-        elif param.annotation == float:
+        elif param.annotation is float:
             param_type = "number"
 
         # Extract description from docstring if available
@@ -59,6 +76,7 @@ def make_tool_schema(func: Callable) -> dict:
             "properties": params,
             "required": required,
         },
+        "risk_level": risk_level.value,  # Add risk metadata
     }
 
 
@@ -69,24 +87,44 @@ class ToolRegistry:
         """Initialize tool registry."""
         self.tools: Dict[str, Callable] = {}
         self.schemas: Dict[str, dict] = {}
+        self.risk_levels: Dict[str, RiskLevel] = {}
 
-    def register(self, func: Callable) -> Callable:
-        """Register a tool function.
+    def register(
+        self, func: Callable = None, risk_level: RiskLevel = RiskLevel.SAFE
+    ) -> Callable:
+        """Register a tool function with risk classification.
 
         Can be used as a decorator:
         @registry.register
         def my_tool(arg: str) -> str:
             ...
 
+        Or with risk level:
+        @registry.register(risk_level=RiskLevel.HIGH)
+        def dangerous_tool(arg: str) -> str:
+            ...
+
         Args:
             func: Function to register as tool
+            risk_level: Risk classification for approval system
 
         Returns:
-            The function (for decorator use)
+            The function (for decorator use) or decorator function
         """
-        self.tools[func.__name__] = func
-        self.schemas[func.__name__] = make_tool_schema(func)
-        return func
+
+        def decorator(f: Callable) -> Callable:
+            self.tools[f.__name__] = f
+            self.schemas[f.__name__] = make_tool_schema(f, risk_level)
+            self.risk_levels[f.__name__] = risk_level
+            return f
+
+        # Support both @register and @register(risk_level=...)
+        if func is None:
+            # Called with arguments: @register(risk_level=...)
+            return decorator
+        else:
+            # Called without arguments: @register
+            return decorator(func)
 
     def get_schemas(self) -> List[dict]:
         """Get all tool schemas for LLM.
@@ -122,6 +160,22 @@ class ToolRegistry:
         """
         return list(self.tools.keys())
 
+    def get_risk_level(self, name: str) -> RiskLevel:
+        """Get risk level for a tool.
+
+        Args:
+            name: Tool name
+
+        Returns:
+            Risk level of the tool
+
+        Raises:
+            ValueError: If tool not found
+        """
+        if name not in self.risk_levels:
+            raise ValueError(f"Tool '{name}' not found")
+        return self.risk_levels[name]
+
 
 # Create default registry
 registry = ToolRegistry()
@@ -132,7 +186,7 @@ registry = ToolRegistry()
 # ============================================================================
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def read_file(path: str) -> str:
     """Read contents of a file.
 
@@ -146,6 +200,11 @@ def read_file(path: str) -> str:
         FileNotFoundError: If file doesn't exist
         PermissionError: If file can't be read
     """
+    from .logging import get_logger
+    logger = get_logger()
+
+    logger.info(f"📖 READ_FILE called: {path}")
+
     file_path = Path(path)
 
     if not file_path.exists():
@@ -157,10 +216,12 @@ def read_file(path: str) -> str:
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
+    logger.info(f"📖 READ_FILE completed: {path} ({len(content)} chars)")
+
     return content
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.MEDIUM)
 def write_file(path: str, content: str) -> str:
     """Write content to a file.
 
@@ -188,7 +249,7 @@ def write_file(path: str, content: str) -> str:
     return f"Successfully wrote {len(content)} characters to {path}"
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def list_files(path: str = ".") -> str:
     """List files in a directory.
 
@@ -202,6 +263,11 @@ def list_files(path: str = ".") -> str:
         FileNotFoundError: If directory doesn't exist
         NotADirectoryError: If path is not a directory
     """
+    from .logging import get_logger
+    logger = get_logger()
+
+    logger.info(f"📂 LIST_FILES called: {path}")
+
     dir_path = Path(path)
 
     if not dir_path.exists():
@@ -223,7 +289,7 @@ def list_files(path: str = ".") -> str:
 # ============================================================================
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.HIGH)
 def run_bash(command: str) -> str:
     """Execute a bash command.
 
@@ -239,6 +305,13 @@ def run_bash(command: str) -> str:
     Raises:
         subprocess.CalledProcessError: If command fails
     """
+    from .logging import get_logger
+    logger = get_logger()
+
+    # Truncate long commands for logging
+    cmd_preview = command[:100] + "..." if len(command) > 100 else command
+    logger.info(f"🔧 RUN_BASH called: {cmd_preview}")
+
     try:
         result = subprocess.run(
             command,
@@ -292,21 +365,23 @@ def _load_gitignore_patterns(cwd: Path) -> List[str]:
             pass  # Ignore errors reading .gitignore
 
     # Always ignore common directories
-    patterns.extend([
-        ".git",
-        "__pycache__",
-        "node_modules",
-        ".venv",
-        "venv",
-        "*.pyc",
-        ".DS_Store",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        "dist",
-        "build",
-        "*.egg-info",
-    ])
+    patterns.extend(
+        [
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            "venv",
+            "*.pyc",
+            ".DS_Store",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "dist",
+            "build",
+            "*.egg-info",
+        ]
+    )
 
     return patterns
 
@@ -384,7 +459,7 @@ def _format_relative_time(timestamp: float) -> str:
         return f"{days} day{'s' if days != 1 else ''} ago"
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def glob_files(pattern: str, max_results: int = 100) -> str:
     """Find files matching a glob pattern.
 
@@ -466,8 +541,13 @@ def glob_files(pattern: str, max_results: int = 100) -> str:
         return f"Error searching for pattern '{pattern}': {str(e)}"
 
 
-@registry.register
-def grep_files(pattern: str, file_pattern: str = "**/*", context_lines: int = 0, max_results: int = 100) -> str:
+@registry.register(risk_level=RiskLevel.SAFE)
+def grep_files(
+    pattern: str,
+    file_pattern: str = "**/*",
+    context_lines: int = 0,
+    max_results: int = 100,
+) -> str:
     """Search for a regex pattern in files.
 
     Args:
@@ -486,6 +566,12 @@ def grep_files(pattern: str, file_pattern: str = "**/*", context_lines: int = 0,
     """
     cwd = Path.cwd()
     gitignore_patterns = _load_gitignore_patterns(cwd)
+    from .logging import get_logger
+    logger = get_logger()
+
+    pattern_preview = pattern[:50] + "..." if len(pattern) > 50 else pattern
+    logger.info(f"🔍 GREP_FILES called: pattern='{pattern_preview}', file_pattern='{file_pattern}'")
+
     matches_found = []
 
     try:
@@ -525,16 +611,22 @@ def grep_files(pattern: str, file_pattern: str = "**/*", context_lines: int = 0,
                             start = max(0, line_num - context_lines - 1)
                             end = min(len(lines), line_num + context_lines)
 
-                            context_before = lines[start:line_num - 1]
+                            context_before = lines[start : line_num - 1]
                             context_after = lines[line_num:end]
 
-                        matches_found.append({
-                            "file": file_path.relative_to(cwd),
-                            "line_num": line_num,
-                            "line": line.rstrip(),
-                            "context_before": [l.rstrip() for l in context_before],
-                            "context_after": [l.rstrip() for l in context_after],
-                        })
+                        matches_found.append(
+                            {
+                                "file": file_path.relative_to(cwd),
+                                "line_num": line_num,
+                                "line": line.rstrip(),
+                                "context_before": [
+                                    ctx.rstrip() for ctx in context_before
+                                ],
+                                "context_after": [
+                                    ctx.rstrip() for ctx in context_after
+                                ],
+                            }
+                        )
 
                         if len(matches_found) >= max_results:
                             break
@@ -556,14 +648,14 @@ def grep_files(pattern: str, file_pattern: str = "**/*", context_lines: int = 0,
             result.append(f"{match['file']}:{match['line_num']}")
 
             # Add context before
-            for line in match['context_before']:
+            for line in match["context_before"]:
                 result.append(f"  {line}")
 
             # Add matching line (highlighted)
             result.append(f"> {match['line']}")
 
             # Add context after
-            for line in match['context_after']:
+            for line in match["context_after"]:
                 result.append(f"  {line}")
 
             result.append("")  # Blank line between matches
@@ -576,7 +668,7 @@ def grep_files(pattern: str, file_pattern: str = "**/*", context_lines: int = 0,
         return f"Error searching for pattern '{pattern}': {str(e)}"
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.MEDIUM)
 def edit_file(path: str, old_text: str, new_text: str) -> str:
     """Edit a file by replacing old_text with new_text.
 
@@ -597,7 +689,11 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 
     Examples:
         edit_file("config.py", "DEBUG = False", "DEBUG = True")
-        edit_file("app.py", "def old_func():\\n    pass", "def new_func():\\n    return 42")
+        edit_file(
+            "app.py",
+            "def old_func():\\n    pass",
+            "def new_func():\\n    return 42",
+        )
     """
     file_path = Path(path)
 
@@ -619,7 +715,8 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
     count = content.count(old_text)
     if count > 1:
         raise ValueError(
-            f"Text appears {count} times in file. Please provide more context to make it unique."
+            f"Text appears {count} times in file. "
+            "Please provide more context to make it unique."
         )
 
     # Perform replacement
@@ -634,7 +731,11 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
     new_lines = new_text.count("\n") + 1
     diff_lines = new_lines - old_lines
 
-    return f"Successfully edited {path}: replaced {old_lines} line(s) with {new_lines} line(s) ({diff_lines:+d} lines)"
+    return (
+        f"Successfully edited {path}: "
+        f"replaced {old_lines} line(s) with {new_lines} line(s) "
+        f"({diff_lines:+d} lines)"
+    )
 
 
 # ============================================================================
@@ -642,7 +743,7 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 # ============================================================================
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def git_status() -> str:
     """Show git status of the repository.
 
@@ -672,7 +773,7 @@ def git_status() -> str:
         return f"Error running git status: {str(e)}"
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def git_diff(file_path: str = "") -> str:
     """Show git diff for a file or entire repository.
 
@@ -709,7 +810,7 @@ def git_diff(file_path: str = "") -> str:
         return f"Error running git diff: {str(e)}"
 
 
-@registry.register
+@registry.register(risk_level=RiskLevel.SAFE)
 def git_log(max_commits: int = 10) -> str:
     """Show recent git commit history.
 
@@ -742,6 +843,110 @@ def git_log(max_commits: int = 10) -> str:
         return f"Error running git log: {str(e)}"
 
 
+@registry.register(risk_level=RiskLevel.HIGH)
+def git_commit(message: str, files: str = "") -> str:
+    """Create a git commit with the specified message.
+
+    This tool will:
+    1. Stage files if specified (or use already-staged files)
+    2. Show a diff preview of what will be committed
+    3. Validate the commit message
+    4. Execute the commit
+    5. Return commit information
+
+    Args:
+        message: Commit message (required, must not be empty)
+        files: Space-separated list of files to stage
+            (optional, uses staged files if empty)
+
+    Returns:
+        Success message with commit SHA and stats, or error message
+    """
+    try:
+        # Validate commit message
+        if not message or not message.strip():
+            return "Error: Commit message cannot be empty"
+
+        message = message.strip()
+
+        # Stage files if specified
+        if files:
+            file_list = files.split()
+            for file_path in file_list:
+                result = subprocess.run(
+                    ["git", "add", file_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    return f"Error staging file '{file_path}': {result.stderr}"
+
+        # Check if there are staged changes
+        status_result = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if status_result.returncode != 0:
+            return "Error: Not a git repository or git not available"
+
+        staged_files = status_result.stdout.strip()
+        if not staged_files:
+            return (
+                "Error: No changes staged for commit. "
+                "Use 'files' parameter to stage files or run 'git add' first."
+            )
+
+        # Get diff preview of staged changes
+        diff_result = subprocess.run(
+            ["git", "diff", "--cached", "--stat"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        diff_preview = diff_result.stdout.strip()
+
+        # Execute the commit
+        commit_result = subprocess.run(
+            ["git", "commit", "-m", message],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if commit_result.returncode != 0:
+            return f"Error creating commit: {commit_result.stderr}"
+
+        # Get the commit SHA
+        sha_result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        commit_sha = (
+            sha_result.stdout.strip() if sha_result.returncode == 0 else "unknown"
+        )
+
+        # Format success message
+        success_msg = "✓ Commit created successfully!\n\n"
+        success_msg += f"Commit: {commit_sha}\n"
+        success_msg += f"Message: {message}\n\n"
+        success_msg += f"Changes:\n{diff_preview}"
+
+        return success_msg
+
+    except subprocess.TimeoutExpired:
+        return "Error: Git command timed out"
+    except Exception as e:
+        return f"Error creating commit: {str(e)}"
+
+
 # ============================================================================
 # Utility Functions
 # ============================================================================
@@ -771,3 +976,302 @@ def get_tool_help(tool_name: str) -> Optional[str]:
 
     func = registry.tools[tool_name]
     return inspect.getdoc(func)
+
+
+# ============================================================================
+# Background Bash Tools
+# ============================================================================
+
+
+@registry.register(risk_level=RiskLevel.HIGH)
+def run_bash_background(
+    command: str, 
+    timeout: int = 300
+) -> str:
+    """Execute a bash command in the background with real-time output streaming.
+
+    SECURITY WARNING: Only execute trusted commands!
+    This runs shell commands with full system access.
+
+    Args:
+        command: Shell command to execute
+        timeout: Timeout in seconds (default: 300)
+
+    Returns:
+        Success message with process ID and management instructions,
+        or error message if command couldn't be started
+    """
+    from .logging import get_logger
+    logger = get_logger()
+
+    # Truncate long commands for logging
+    cmd_preview = command[:100] + "..." if len(command) > 100 else command
+    logger.info(f"🔧 RUN_BASH_BACKGROUND called: {cmd_preview}")
+
+    try:
+        # Get global background executor
+        executor = get_background_executor()
+        
+        # Start background process
+        process = executor.execute_command(command, timeout)
+        
+        # Format success response
+        response = f"✓ Background process started: {process.process_id}\n\n"
+        response += f"Command: {command}\n"
+        response += f"Status: {process.status.value}\n"
+        response += f"Started: {_format_timestamp(process.start_time) if process.start_time else 'Unknown'}\n\n"
+        response += "Management commands:\n"
+        response += f"- get_background_status('{process.process_id}') to check progress\n"
+        response += f"- get_background_output('{process.process_id}') to view output\n"
+        response += f"- interrupt_background_process('{process.process_id}') to cancel\n\n"
+        response += "Note: Process will continue running in the background even after this response."
+        
+        return response
+
+    except Exception as e:
+        error_msg = f"Error starting background process: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+
+
+@registry.register(risk_level=RiskLevel.SAFE)
+def get_background_status(process_id: str) -> str:
+    """Get status of a background process.
+
+    Args:
+        process_id: ID of the background process
+
+    Returns:
+        Status information or error message
+    """
+    from .logging import get_logger
+    logger = get_logger()
+
+    try:
+        executor = get_background_executor()
+        process = executor.get_process(process_id)
+        
+        if process is None:
+            return f"Error: Process not found: {process_id}"
+        
+        # Calculate runtime
+        runtime = process.get_runtime()
+        
+        # Format status response
+        response = f"Background Process Status: {process_id}\n\n"
+        response += f"Command: {process.command}\n"
+        response += f"Status: {process.status.value}\n"
+        response += f"Runtime: {runtime:.2f} seconds\n"
+        response += f"Exit Code: {process.exit_code if process.exit_code is not None else 'Still running'}\n"
+        response += f"Output Lines: {len(process.output_lines)}\n"
+        
+        if process.start_time:
+            response += f"Started: {_format_timestamp(process.start_time)}\n"
+        
+        if process.end_time:
+            response += f"Ended: {_format_timestamp(process.end_time)}\n"
+        
+        if process.error_message:
+            response += f"Error: {process.error_message}\n"
+        
+        # Add recommendations based on status
+        if process.is_running():
+            response += f"\n💡 Use get_background_output('{process_id}') to see real-time output"
+            response += f"\n💡 Use interrupt_background_process('{process_id}') to cancel"
+        elif process.status == ProcessStatus.COMPLETED:
+            response += f"\n✅ Process completed successfully"
+        elif process.status == ProcessStatus.FAILED:
+            response += f"\n❌ Process failed - check output for details"
+        elif process.status == ProcessStatus.INTERRUPTED:
+            response += f"\n⚠️ Process was interrupted by user"
+        
+        return response
+
+    except Exception as e:
+        error_msg = f"Error getting process status: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+
+
+@registry.register(risk_level=RiskLevel.HIGH)
+def interrupt_background_process(process_id: str) -> str:
+    """Interrupt a running background process.
+
+    Args:
+        process_id: ID of the background process to interrupt
+
+    Returns:
+        Success message or error message
+    """
+    from .logging import get_logger
+    logger = get_logger()
+
+    try:
+        executor = get_background_executor()
+        
+        # Check if process exists
+        process = executor.get_process(process_id)
+        if process is None:
+            return f"Error: Process not found: {process_id}"
+        
+        # Check if process is still running
+        if not process.is_running():
+            return f"Process {process_id} is not running (status: {process.status.value})"
+        
+        # Attempt to interrupt
+        success = executor.interrupt_process(process_id)
+        
+        if success:
+            return f"✓ Interrupt signal sent to process: {process_id}\n\n" \
+                   f"The process should stop shortly. Use get_background_status('{process_id}') " \
+                   f"to confirm it has been interrupted."
+        else:
+            return f"Failed to interrupt process: {process_id}"
+
+    except Exception as e:
+        error_msg = f"Error interrupting process: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+
+
+@registry.register(risk_level=RiskLevel.SAFE)
+def get_background_output(process_id: str, lines: int = 50) -> str:
+    """Get recent output from a background process.
+
+    Args:
+        process_id: ID of the background process
+        lines: Number of recent lines to retrieve (default: 50)
+
+    Returns:
+        Process output or error message
+    """
+    from .logging import get_logger
+    logger = get_logger()
+
+    try:
+        executor = get_background_executor()
+        process = executor.get_process(process_id)
+        
+        if process is None:
+            return f"Error: Process not found: {process_id}"
+        
+        # Get recent output lines
+        output_lines = process.output_lines
+        if not output_lines:
+            return f"No output available for process {process_id} (status: {process.status.value})"
+        
+        # Get the requested number of lines (most recent)
+        if lines > 0:
+            recent_lines = output_lines[-lines:]
+        else:
+            recent_lines = output_lines  # All lines if lines <= 0
+        
+        # Format output response
+        response = f"Background Process Output: {process_id}\n"
+        response += f"Command: {process.command}\n"
+        response += f"Status: {process.status.value}\n"
+        response += f"Showing last {len(recent_lines)} of {len(output_lines)} lines:\n"
+        response += "─" * 60 + "\n"
+        
+        for line in recent_lines:
+            response += line + "\n"
+        
+        # Add status information
+        response += "─" * 60 + "\n"
+        response += f"Total output lines: {len(output_lines)}\n"
+        
+        if process.is_running():
+            response += f"💡 Process still running - output may continue"
+        else:
+            response += f"✅ Process finished (exit code: {process.exit_code})"
+        
+        return response
+
+    except Exception as e:
+        error_msg = f"Error getting process output: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+
+
+@registry.register(risk_level=RiskLevel.SAFE)
+def list_background_processes() -> str:
+    """List all background processes.
+
+    Returns:
+        List of all processes with their status
+    """
+    from .logging import get_logger
+    logger = get_logger()
+
+    try:
+        executor = get_background_executor()
+        all_processes = executor.list_all_processes()
+        
+        if not all_processes:
+            return "No background processes found"
+        
+        # Sort by start time (newest first)
+        all_processes.sort(key=lambda p: p.start_time or 0, reverse=True)
+        
+        # Format response
+        response = f"Background Processes ({len(all_processes)} total):\n\n"
+        
+        active_count = 0
+        for process in all_processes:
+            runtime = process.get_runtime()
+            
+            # Status emoji
+            if process.is_running():
+                status_emoji = "🟢"
+                active_count += 1
+            elif process.status == ProcessStatus.COMPLETED:
+                status_emoji = "✅"
+            elif process.status == ProcessStatus.FAILED:
+                status_emoji = "❌"
+            elif process.status == ProcessStatus.INTERRUPTED:
+                status_emoji = "⚠️"
+            else:
+                status_emoji = "❓"
+            
+            response += f"{status_emoji} {process.process_id[:12]}... "
+            response += f"({process.status.value})\n"
+            response += f"   Command: {process.command[:60]}{'...' if len(process.command) > 60 else ''}\n"
+            response += f"   Runtime: {runtime:.1f}s | "
+            response += f"Lines: {len(process.output_lines)}"
+            
+            if process.exit_code is not None:
+                response += f" | Exit: {process.exit_code}"
+            
+            response += f"\n"
+            
+            if process.start_time:
+                response += f"   Started: {_format_timestamp(process.start_time)}\n"
+            
+            response += "\n"
+        
+        # Summary
+        response += f"Summary: {active_count} running, {len(all_processes) - active_count} completed\n"
+        response += f"💡 Use get_background_status('process_id') for details\n"
+        response += f"💡 Use interrupt_background_process('process_id') to cancel running processes"
+        
+        return response
+
+    except Exception as e:
+        error_msg = f"Error listing processes: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
+
+
+def _format_timestamp(timestamp: float) -> str:
+    """Format a timestamp for display.
+    
+    Args:
+        timestamp: Unix timestamp
+        
+    Returns:
+        Formatted timestamp string
+    """
+    import datetime
+    
+    dt = datetime.datetime.fromtimestamp(timestamp)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")

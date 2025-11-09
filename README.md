@@ -16,19 +16,34 @@ CDD Agent is a terminal-based AI coding assistant that lets you use **any LLM pr
 
 ---
 
-## Current Status: v0.0.1 (Experimental)
+## Current Status: v0.0.3 (Beta)
 
-This is an **early experimental release**. Currently functional:
-- Multi-provider configuration (Anthropic, OpenAI, custom endpoints)
-- Authentication system with credential management
-- CLI interface for setup and testing
-- Model tier abstraction (small/mid/big)
+This is a **beta release** with core features functional. Currently available:
 
-**Coming soon:**
-- Conversational agent loop
-- Tool execution system
+**✅ Core Features:**
+- Multi-provider architecture (Anthropic, OpenAI, custom endpoints)
+- Full authentication and configuration system
+- Beautiful Textual TUI with split-pane interface
+- Token-by-token streaming responses
+- Enhanced system prompt with pair coding principles
+- Agent loop with tool execution
+
+**✅ Advanced Tools:**
+- File operations: read_file, write_file, write_file_lines, edit_file
+- Code search: glob_files (pattern matching), grep_files (regex search)
+- Shell execution: run_bash with output capture
+
+**✅ Safety & Context:**
+- Tool approval system with 3 modes (paranoid/balanced/trusting)
+- Hierarchical context loading (global → project)
+- Security warnings for dangerous operations
+- Context from CDD.md or CLAUDE.md files
+
+**🔜 Coming Soon:**
+- Background bash execution
+- Performance optimization (<200ms startup)
+- git_commit tool with diff preview
 - Specialized CDD workflow agents (Socrates, Planner, Executor)
-- Rich terminal UI with streaming responses
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan.
 
@@ -69,16 +84,44 @@ cdd-agent auth status
 cdd-agent auth test
 ```
 
-### 3. Start coding (coming in v0.1.0)
+### 3. Start coding
 
 ```bash
-# Interactive conversation mode
+# Interactive TUI mode (default)
 cdd-agent chat
 
-# CDD workflow modes
-cdd-agent socrates  # Spec generation
-cdd-agent plan      # Task planning
-cdd-agent execute   # Implementation
+# With approval settings
+cdd-agent chat --approval paranoid    # Ask for every tool execution
+cdd-agent chat --approval balanced    # Auto-approve safe tools (default)
+cdd-agent chat --approval trusting    # Remember approvals per session
+
+# Disable context loading
+cdd-agent chat --no-context
+
+# Simple streaming mode (no TUI)
+cdd-agent chat --simple
+
+# Single-shot execution
+cdd-agent chat "Explain this codebase"
+```
+
+### 4. Set up context files (optional)
+
+```bash
+# Global preferences (applies to all projects)
+mkdir -p ~/.cdd
+echo "# Global Context
+
+- Always use type hints in Python
+- Prefer functional style" > ~/.cdd/CDD.md
+
+# Project context (specific to this project)
+echo "# Project Context
+
+This is a Flask web application with PostgreSQL." > CDD.md
+
+# Now the agent will automatically load this context
+cdd-agent chat  # Context loaded automatically
 ```
 
 ---
@@ -99,8 +142,16 @@ Configure models by tier instead of specific versions:
 ### Secure Configuration
 - Local settings file: `~/.cdd-agent/settings.json`
 - Environment variable overrides
+- Tool approval system with 3 safety modes
 - No telemetry or data collection
 - Your code stays on your machine
+
+### Hierarchical Context Loading
+- Global context: `~/.cdd/CDD.md` or `~/.claude/CLAUDE.md`
+- Project context: `CDD.md` or `CLAUDE.md` at project root
+- Automatic project root detection (.git, pyproject.toml, etc.)
+- Context merging with LLM recency bias (project overrides global)
+- Caching for performance
 
 ---
 
@@ -186,11 +237,12 @@ poetry run cdd-agent --help
 
 ## Roadmap
 
-**v0.0.x**: Foundation (auth, config, CLI) ✅
-**v0.1.x**: Basic agent loop (conversation, tool execution)
+**v0.0.1**: Foundation (auth, config, CLI) ✅
+**v0.0.2**: Basic agent loop + TUI + streaming ✅
+**v0.0.3**: Advanced tools + approval system + context loading ✅
+**v0.1.x**: Performance optimization + background execution
 **v0.2.x**: CDD workflows (Socrates, Planner, Executor)
-**v0.3.x**: Rich TUI and streaming
-**v1.0.0**: Stable API, full CDD workflow
+**v1.0.0**: Production-ready with full CDD workflow
 
 See [ROADMAP.md](ROADMAP.md) for detailed milestones.
 
