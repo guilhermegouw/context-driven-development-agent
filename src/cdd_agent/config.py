@@ -11,7 +11,7 @@ import json
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -29,11 +29,25 @@ class ApprovalMode(str, Enum):
     TRUSTING = "trusting"
 
 
+class OAuthTokens(BaseModel):
+    """OAuth token storage for plan-based authentication.
+
+    Stores OAuth tokens for Claude Pro/Max plans, enabling zero-cost API access.
+    Tokens are automatically refreshed when they expire.
+    """
+
+    type: Literal["oauth"] = "oauth"
+    refresh_token: str
+    access_token: str
+    expires_at: int  # Unix timestamp
+
+
 class ProviderConfig(BaseModel):
     """Configuration for a single LLM provider."""
 
     auth_token: Optional[str] = None
     api_key: Optional[str] = None  # Alias for auth_token (OpenAI style)
+    oauth: Optional[OAuthTokens] = None  # OAuth tokens for plan-based auth
     base_url: str
     timeout_ms: int = 300000
     models: Dict[str, str] = Field(default_factory=dict)
@@ -50,7 +64,14 @@ class ProviderConfig(BaseModel):
         return v
 
     def get_api_key(self) -> str:
-        """Get API key (handles both auth_token and api_key)."""
+        """Get API key (handles both auth_token and api_key).
+
+        Note: If OAuth is configured, this returns an empty string.
+        The OAuth access token should be used instead via the oauth property.
+        """
+        if self.oauth:
+            # OAuth is configured - access token will be used instead
+            return ""
         return self.auth_token or self.api_key or ""
 
     def get_model(self, tier: Optional[str] = None) -> str:

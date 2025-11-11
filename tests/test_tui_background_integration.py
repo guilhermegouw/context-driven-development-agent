@@ -85,7 +85,7 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         # Mock query_one to return a mock chat history
         mock_chat_history = Mock()
         with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-            with patch('cdd_agent.tui.call_from_thread') as mock_call:
+            with patch.object(self.tui, 'call_from_thread') as mock_call:
                 # Call notification method
                 self.tui._notify_process_completed("test-id", mock_process)
 
@@ -102,7 +102,7 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         # Mock query_one to return a mock chat history
         mock_chat_history = Mock()
         with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-            with patch('cdd_agent.tui.call_from_thread') as mock_call:
+            with patch.object(self.tui, 'call_from_thread') as mock_call:
                 self.tui._notify_process_failed("test-id", mock_process)
 
                 self.assertTrue(mock_call.called)
@@ -116,7 +116,7 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         # Mock query_one to return a mock chat history
         mock_chat_history = Mock()
         with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-            with patch('cdd_agent.tui.call_from_thread') as mock_call:
+            with patch.object(self.tui, 'call_from_thread') as mock_call:
                 self.tui._notify_process_interrupted("test-id", mock_process)
 
                 self.assertTrue(mock_call.called)
@@ -138,23 +138,23 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         # Mock query_one and call_from_thread
         mock_chat_history = Mock()
         with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-            with patch('cdd_agent.tui.call_from_thread'):
+            with patch.object(self.tui, 'call_from_thread'):
                 # Stream new output
                 new_lines = ["new line 1", "new line 2"]
                 self.tui._stream_process_output(process_id, mock_process, new_lines)
 
-                # Verify last_line_count was updated
+                # Verify last_line_count was updated to total lines
                 process_info = self.tui.background_processes[process_id]
-                self.assertEqual(process_info['last_line_count'], 2)
+                self.assertEqual(process_info['last_line_count'], 3)  # Total: old line + 2 new lines
     
     def test_action_show_background_processes_empty(self):
         """Test showing background processes when none exist."""
         # Mock the executor to return no processes
-        with patch.object(self.tui.background_executor(), 'list_all_processes', return_value=[]):
+        with patch.object(self.tui.background_executor, 'list_all_processes', return_value=[]):
             # Mock query_one
             mock_chat_history = Mock()
             with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-                with patch('cdd_agent.tui.call_from_thread'):
+                with patch.object(self.tui, 'call_from_thread'):
                     self.tui.action_show_background_processes()
 
                     # Should add a "no processes" message via call_from_thread
@@ -179,12 +179,12 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         mock_process2.command = "ls -la"
         mock_process2.start_time = time.time() - 10
 
-        with patch.object(self.tui.background_executor(), 'list_all_processes',
+        with patch.object(self.tui.background_executor, 'list_all_processes',
                          return_value=[mock_process1, mock_process2]):
             # Mock query_one
             mock_chat_history = Mock()
             with patch.object(self.tui, 'query_one', return_value=mock_chat_history):
-                with patch('cdd_agent.tui.call_from_thread'):
+                with patch.object(self.tui, 'call_from_thread'):
                     self.tui.action_show_background_processes()
 
                     # Should add process list message
@@ -192,7 +192,7 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
     
     def test_action_interrupt_background_processes_empty(self):
         """Test interrupting background processes when none are running."""
-        with patch.object(self.tui.background_executor(), 'list_active_processes', return_value=[]):
+        with patch.object(self.tui.background_executor, 'list_active_processes', return_value=[]):
             with patch.object(self.tui, '_add_background_status_message') as mock_add_msg:
                 self.tui.action_interrupt_background_processes()
 
@@ -207,9 +207,9 @@ class TestTUIBackgroundIntegration(unittest.TestCase):
         mock_process2 = Mock()
         mock_process2.process_id = "proc-running-2"
 
-        with patch.object(self.tui.background_executor(), 'list_active_processes',
+        with patch.object(self.tui.background_executor, 'list_active_processes',
                          return_value=[mock_process1, mock_process2]):
-            with patch.object(self.tui.background_executor(), 'interrupt_process', return_value=True):
+            with patch.object(self.tui.background_executor, 'interrupt_process', return_value=True):
                 with patch.object(self.tui, '_add_background_status_message') as mock_add_msg:
                     self.tui.action_interrupt_background_processes()
 
@@ -277,7 +277,7 @@ class TestBackgroundProcessMonitoring(unittest.TestCase):
         mock_process.output_lines = ["output"]
 
         # Mock executor to return our process
-        with patch.object(self.tui.background_executor(), 'get_process', return_value=mock_process):
+        with patch.object(self.tui.background_executor, 'get_process', return_value=mock_process):
             # Mock notification method
             with patch.object(self.tui, '_notify_process_completed') as mock_notify:
                 # Simulate one monitoring cycle
@@ -299,7 +299,7 @@ class TestBackgroundProcessMonitoring(unittest.TestCase):
         mock_process.is_running.return_value = True
         mock_process.output_lines = ["line 1", "line 2", "line 3"]
 
-        with patch.object(self.tui.background_executor(), 'get_process', return_value=mock_process):
+        with patch.object(self.tui.background_executor, 'get_process', return_value=mock_process):
             with patch.object(self.tui, '_stream_process_output') as mock_stream:
                 # Simulate new output being available
                 self.tui.background_processes[process_id]['last_line_count'] = 1

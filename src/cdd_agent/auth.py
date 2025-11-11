@@ -3,9 +3,12 @@
 This module handles:
 - Interactive provider setup
 - API key validation
+- OAuth flow for Claude Pro/Max plans
 - Configuration display
 """
 
+import asyncio
+import webbrowser
 from typing import Dict
 
 from rich.console import Console
@@ -13,7 +16,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
-from .config import ConfigManager, ProviderConfig, Settings
+from .config import ConfigManager, OAuthTokens, ProviderConfig, Settings
 
 console = Console()
 
@@ -260,3 +263,180 @@ class AuthManager:
 
         # Show config file location
         console.print(f"\n[dim]Config file: {self.config.config_file}[/dim]")
+
+    def setup_oauth_interactive(self, provider_name: str = "anthropic") -> None:
+        """Set up OAuth authentication for Claude Pro/Max plans.
+
+        This method guides the user through OAuth authentication flow:
+        1. Opens browser to Anthropic's OAuth page
+        2. User authorizes and copies authorization code
+        3. Exchanges code for OAuth tokens
+        4. Saves tokens to settings.json
+
+        Args:
+            provider_name: Provider to configure (default: anthropic)
+
+        Supports two modes:
+        - "max": OAuth for Claude Pro/Max plan (zero-cost API access)
+        - "api-key": Create permanent API key via OAuth
+        """
+        from .oauth import AnthropicOAuth
+
+        console.print("\n[bold cyan]Anthropic OAuth Setup[/bold cyan]")
+        console.print(
+            "This will authenticate with your Claude Pro or Max plan "
+            "for zero-cost API access.\n"
+        )
+
+        # Ask which authentication mode
+        mode_choice = Prompt.ask(
+            "Choose authentication mode",
+            choices=["max", "api-key"],
+            default="max",
+        )
+
+        console.print()
+        if mode_choice == "max":
+            console.print(
+                "[yellow]Mode:[/yellow] OAuth (Claude Pro/Max)\n"
+                "[dim]Uses OAuth tokens that auto-refresh. Best for plan subscribers.[/dim]\n"
+            )
+        else:
+            console.print(
+                "[yellow]Mode:[/yellow] API Key Generation\n"
+                "[dim]Creates a permanent API key via OAuth. More convenient but "
+                "counts toward API usage.[/dim]\n"
+            )
+
+        oauth_handler = AnthropicOAuth()
+
+        if mode_choice == "max":
+            # OAuth flow for Claude Max plan
+            auth_url, verifier = asyncio.run(oauth_handler.start_auth_flow(mode="max"))
+
+            console.print("[bold]Step 1: Authorize in browser[/bold]")
+            console.print(f"Opening: [link]{auth_url}[/link]\n")
+
+            # Try to open browser automatically
+            try:
+                webbrowser.open(auth_url)
+                console.print("[green]✓ Browser opened[/green]")
+            except Exception:
+                console.print(
+                    "[yellow]⚠ Could not open browser automatically.[/yellow]"
+                )
+                console.print("Please copy the URL above and open it manually.\n")
+
+            # Get authorization code from user
+            console.print(
+                "\n[bold]Step 2: Paste authorization code[/bold]\n"
+                "[dim]After authorizing, you'll receive a code. Paste it here:[/dim]"
+            )
+            auth_code = Prompt.ask("[cyan]Authorization code[/cyan]")
+
+            # Exchange for tokens
+            console.print("\n[yellow]Exchanging code for OAuth tokens...[/yellow]")
+            tokens = asyncio.run(oauth_handler.exchange_code(auth_code, verifier))
+
+            if not tokens:
+                console.print(
+                    "[red]✗ Failed to exchange authorization code.[/red]\n"
+                    "[dim]Please try again or check that you copied the code correctly.[/dim]"
+                )
+                return
+
+            # Create OAuth config
+            oauth_config = OAuthTokens(
+                refresh_token=tokens["refresh_token"],
+                access_token=tokens["access_token"],
+                expires_at=tokens["expires_at"],
+            )
+
+            # Load or create settings
+            if self.config.exists():
+                settings = self.config.load()
+            else:
+                settings = self.config.create_default()
+
+            # Update provider config with OAuth
+            if provider_name not in settings.providers:
+                settings.providers[provider_name] = ProviderConfig(
+                    base_url="https://api.anthropic.com",
+                    models={
+                        "small": "claude-3-5-haiku-20241022",
+                        "mid": "claude-sonnet-4-5-20250929",
+                        "big": "claude-opus-4-20250514",
+                    },
+                )
+
+            settings.providers[provider_name].oauth = oauth_config
+            settings.default_provider = provider_name
+            self.config.save(settings)
+
+            console.print(
+                "\n[green]✓ OAuth setup successful![/green]\n"
+                "[dim]Your Claude Pro/Max plan is now connected.\n"
+                "Tokens will auto-refresh when needed.[/dim]\n"
+            )
+
+        else:
+            # Create permanent API key via OAuth
+            auth_url, verifier = asyncio.run(
+                oauth_handler.start_auth_flow(mode="console")
+            )
+
+            console.print("[bold]Step 1: Authorize in browser[/bold]")
+            console.print(f"Opening: [link]{auth_url}[/link]\n")
+
+            try:
+                webbrowser.open(auth_url)
+                console.print("[green]✓ Browser opened[/green]")
+            except Exception:
+                console.print(
+                    "[yellow]⚠ Could not open browser automatically.[/yellow]"
+                )
+                console.print("Please copy the URL above and open it manually.\n")
+
+            console.print(
+                "\n[bold]Step 2: Paste authorization code[/bold]\n"
+                "[dim]After authorizing, you'll receive a code. Paste it here:[/dim]"
+            )
+            auth_code = Prompt.ask("[cyan]Authorization code[/cyan]")
+
+            console.print("\n[yellow]Creating permanent API key...[/yellow]")
+            api_key = asyncio.run(
+                oauth_handler.create_api_key_from_oauth(auth_code, verifier)
+            )
+
+            if not api_key:
+                console.print(
+                    "[red]✗ Failed to create API key.[/red]\n"
+                    "[dim]Please try again or check that you copied the code correctly.[/dim]"
+                )
+                return
+
+            # Load or create settings
+            if self.config.exists():
+                settings = self.config.load()
+            else:
+                settings = self.config.create_default()
+
+            # Save API key
+            if provider_name not in settings.providers:
+                settings.providers[provider_name] = ProviderConfig(
+                    base_url="https://api.anthropic.com",
+                    models={
+                        "small": "claude-3-5-haiku-20241022",
+                        "mid": "claude-sonnet-4-5-20250929",
+                        "big": "claude-opus-4-20250514",
+                    },
+                )
+
+            settings.providers[provider_name].auth_token = api_key
+            settings.default_provider = provider_name
+            self.config.save(settings)
+
+            console.print(
+                "\n[green]✓ API key created and saved![/green]\n"
+                "[dim]You can now use cdd-agent with this API key.[/dim]\n"
+            )

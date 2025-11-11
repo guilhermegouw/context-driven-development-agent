@@ -1,0 +1,249 @@
+"""Execution state tracking for the Executor Agent.
+
+This module provides data structures for tracking the progress of
+autonomous code execution.
+"""
+
+import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+
+@dataclass
+class StepExecution:
+    """Execution state for a single implementation step.
+
+    Attributes:
+        step_number: Step number in the plan
+        status: Current status (pending/in_progress/completed/failed)
+        started_at: When execution started (ISO format)
+        completed_at: When execution completed (ISO format)
+        error: Error message if failed
+        files_created: List of files created by this step
+        files_modified: List of files modified by this step
+    """
+
+    step_number: int
+    status: str = "pending"  # pending, in_progress, completed, failed
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+    files_created: list[str] = field(default_factory=list)
+    files_modified: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Validate step execution data."""
+        valid_statuses = ["pending", "in_progress", "completed", "failed"]
+        if self.status not in valid_statuses:
+            raise ValueError(
+                f"Invalid status '{self.status}'. "
+                f"Must be one of: {', '.join(valid_statuses)}"
+            )
+
+
+@dataclass
+class ExecutionState:
+    """Overall execution state for a ticket implementation.
+
+    Attributes:
+        ticket_slug: Ticket identifier
+        current_step: Current step number being executed
+        step_executions: Dict mapping step number to execution state
+        started_at: When execution started (ISO format)
+        completed_at: When execution completed (ISO format)
+        status: Overall status (in_progress/completed/failed/paused)
+    """
+
+    ticket_slug: str
+    current_step: int
+    step_executions: dict[int, StepExecution]
+    started_at: str
+    completed_at: Optional[str] = None
+    status: str = "in_progress"
+
+    def __post_init__(self):
+        """Ensure started_at is set."""
+        if not self.started_at:
+            self.started_at = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization.
+
+        Returns:
+            Dictionary representation
+        """
+        data = asdict(self)
+        # Convert StepExecution objects to dicts
+        data["step_executions"] = {
+            str(k): v for k, v in data["step_executions"].items()
+        }
+        return data
+
+    def to_json(self) -> str:
+        """Serialize to JSON string.
+
+        Returns:
+            JSON string
+
+        Example:
+            >>> state.to_json()
+            '{"ticket_slug": "feature-test", ...}'
+        """
+        return json.dumps(self.to_dict(), indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExecutionState":
+        """Create from dictionary.
+
+        Args:
+            data: Dictionary data
+
+        Returns:
+            ExecutionState instance
+        """
+        # Convert step_executions back to StepExecution objects
+        step_execs = {}
+        for k, v in data.get("step_executions", {}).items():
+            step_execs[int(k)] = StepExecution(**v)
+
+        return cls(
+            ticket_slug=data["ticket_slug"],
+            current_step=data["current_step"],
+            step_executions=step_execs,
+            started_at=data["started_at"],
+            completed_at=data.get("completed_at"),
+            status=data.get("status", "in_progress"),
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ExecutionState":
+        """Parse from JSON string.
+
+        Args:
+            json_str: JSON string
+
+        Returns:
+            ExecutionState instance
+
+        Raises:
+            ValueError: If JSON is invalid
+        """
+        try:
+            data = json.loads(json_str)
+            return cls.from_dict(data)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON: {e}")
+
+    def save(self, path: Path) -> None:
+        """Save state to file.
+
+        Args:
+            path: Path to save to (typically execution-state.json)
+
+        Example:
+            >>> state.save(Path("specs/tickets/feature-auth/execution-state.json"))
+        """
+        path.write_text(self.to_json())
+
+    @classmethod
+    def load(cls, path: Path) -> Optional["ExecutionState"]:
+        """Load state from file.
+
+        Args:
+            path: Path to load from
+
+        Returns:
+            ExecutionState if file exists, None otherwise
+
+        Example:
+            >>> state = ExecutionState.load(Path("execution-state.json"))
+        """
+        if not path.exists():
+            return None
+
+        try:
+            return cls.from_json(path.read_text())
+        except Exception:
+            return None
+
+    def get_completed_steps(self) -> list[int]:
+        """Get list of completed step numbers.
+
+        Returns:
+            List of step numbers with status "completed"
+        """
+        return [
+            num
+            for num, exec_state in self.step_executions.items()
+            if exec_state.status == "completed"
+        ]
+
+    def get_failed_steps(self) -> list[int]:
+        """Get list of failed step numbers.
+
+        Returns:
+            List of step numbers with status "failed"
+        """
+        return [
+            num
+            for num, exec_state in self.step_executions.items()
+            if exec_state.status == "failed"
+        ]
+
+    def get_progress_percentage(self, total_steps: int) -> float:
+        """Calculate completion percentage.
+
+        Args:
+            total_steps: Total number of steps in plan
+
+        Returns:
+            Percentage complete (0-100)
+        """
+        completed = len(self.get_completed_steps())
+        return (completed / total_steps * 100) if total_steps > 0 else 0
+
+    def mark_step_started(self, step_number: int) -> None:
+        """Mark a step as started.
+
+        Args:
+            step_number: Step number to mark
+        """
+        if step_number not in self.step_executions:
+            self.step_executions[step_number] = StepExecution(step_number)
+
+        self.step_executions[step_number].status = "in_progress"
+        self.step_executions[step_number].started_at = datetime.now().isoformat()
+
+    def mark_step_completed(
+        self, step_number: int, files_created: list[str], files_modified: list[str]
+    ) -> None:
+        """Mark a step as completed.
+
+        Args:
+            step_number: Step number to mark
+            files_created: List of files created
+            files_modified: List of files modified
+        """
+        if step_number not in self.step_executions:
+            self.step_executions[step_number] = StepExecution(step_number)
+
+        self.step_executions[step_number].status = "completed"
+        self.step_executions[step_number].completed_at = datetime.now().isoformat()
+        self.step_executions[step_number].files_created = files_created
+        self.step_executions[step_number].files_modified = files_modified
+
+    def mark_step_failed(self, step_number: int, error: str) -> None:
+        """Mark a step as failed.
+
+        Args:
+            step_number: Step number to mark
+            error: Error message
+        """
+        if step_number not in self.step_executions:
+            self.step_executions[step_number] = StepExecution(step_number)
+
+        self.step_executions[step_number].status = "failed"
+        self.step_executions[step_number].error = error
+        self.step_executions[step_number].completed_at = datetime.now().isoformat()
