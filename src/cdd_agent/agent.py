@@ -39,9 +39,57 @@ PAIR_CODING_SYSTEM_PROMPT = """You are Huyang, an expert AI coding assistant.
 1. NEVER read the same file twice
 2. NEVER run the same command twice
 3. Use minimal tools - check conversation history first
-4. Use `#` headings (not underline-style)
 
-## Examples
+## MARKDOWN FORMATTING RULES (MANDATORY)
+
+**ALWAYS use these styles:**
+✅ Headers: `# Header`, `## Subheader`, `### Section` (markdown style)
+✅ Lists: Use `-` or `*` for bullets, `1.` for numbered lists
+✅ Emphasis: Use `**bold**` and `*italic*` sparingly
+✅ Code: Use backticks for `inline code` and triple backticks for blocks
+
+**NEVER use these styles:**
+❌ Underline headers (like `Header\n======` or `Section\n------`)
+❌ Excessive decorative elements
+❌ ASCII art boxes or borders
+❌ Multiple blank lines (max 1 blank line between sections)
+
+## Response Format Examples
+
+GOOD response format:
+```
+# Task Complete
+
+I've updated the authentication system with the following changes:
+
+- Modified `src/auth.py` (lines 45-67): Added OAuth token refresh
+- Created `tests/test_auth.py`: Added 5 new test cases
+- Updated `README.md`: Added OAuth setup instructions
+
+All tests are passing. The token refresh happens automatically when tokens expire.
+```
+
+BAD response format:
+```
+Task Complete
+=============
+
+I've updated the authentication system with the following changes:
+
+
+* Modified src/auth.py (lines 45-67): Added OAuth token refresh
+
+
+* Created tests/test_auth.py: Added 5 new test cases
+
+
+* Updated README.md: Added OAuth setup instructions
+
+
+All tests are passing. The token refresh happens automatically when tokens expire.
+```
+
+## Tool Usage Examples
 
 ### Example 1: Simple verification task
 User: "Check if the lazy loading is already implemented in cli.py"
@@ -144,6 +192,10 @@ class Agent:
         The Anthropic SDK is only imported and initialized when actually needed,
         not when the Agent class is instantiated. This saves ~707ms startup time.
 
+        Supports both OAuth (Claude Pro/Max plans) and API key authentication:
+        - OAuth: Automatically refreshes tokens when they expire (< 5 min remaining)
+        - API Key: Uses static API key from configuration
+
         Returns:
             Initialized Anthropic client
         """
@@ -152,13 +204,104 @@ class Agent:
                 logger.debug("Initializing Anthropic client")
                 import anthropic
 
-                self._client = anthropic.Anthropic(
-                    api_key=self._provider_config.get_api_key(),
-                    base_url=self._provider_config.base_url,
-                    max_retries=5,  # Increase from default 2 to handle overloaded errors
-                    timeout=600.0,  # 10 minutes timeout for long-running requests
-                )
-                logger.info("Anthropic client initialized successfully")
+                # Check if OAuth is configured
+                if self._provider_config.oauth:
+                    logger.debug("Using OAuth authentication")
+                    import asyncio
+                    import time
+
+                    from .oauth import AnthropicOAuth
+
+                    oauth_config = self._provider_config.oauth
+
+                    # Check if token needs refresh (< 5 minutes remaining)
+                    if time.time() >= (oauth_config.expires_at - 300):
+                        logger.info("OAuth token expiring soon, refreshing...")
+                        oauth_handler = AnthropicOAuth()
+                        new_tokens = asyncio.run(
+                            oauth_handler.refresh_access_token(
+                                oauth_config.refresh_token
+                            )
+                        )
+
+                        if new_tokens:
+                            logger.info("OAuth token refreshed successfully")
+                            # Update config with new tokens
+                            oauth_config.access_token = new_tokens["access_token"]
+                            oauth_config.expires_at = new_tokens["expires_at"]
+                            if "refresh_token" in new_tokens:
+                                oauth_config.refresh_token = new_tokens["refresh_token"]
+
+                            # Save updated tokens to config file
+                            # Note: This loads, updates, and saves the entire config
+                            from .config import ConfigManager
+
+                            config_manager = ConfigManager()
+                            settings = config_manager.load()
+                            # Find and update the provider with OAuth
+                            for provider_name, provider_cfg in settings.providers.items():
+                                if provider_cfg.oauth == oauth_config:
+                                    settings.providers[provider_name].oauth = oauth_config
+                                    break
+                            config_manager.save(settings)
+                            logger.debug("Updated OAuth tokens saved to config")
+                        else:
+                            logger.warning(
+                                "Failed to refresh OAuth token - using existing token"
+                            )
+
+                    # Initialize client with OAuth access token
+                    # OAuth requires Bearer token in Authorization header, not x-api-key
+                    import httpx
+
+                    # Custom transport that removes x-api-key and adds OAuth headers
+                    class OAuthTransport(httpx.HTTPTransport):
+                        def __init__(self, access_token: str, *args, **kwargs):
+                            super().__init__(*args, **kwargs)
+                            self.access_token = access_token
+
+                        def handle_request(self, request: httpx.Request) -> httpx.Response:
+                            # Remove x-api-key header if present
+                            if "x-api-key" in request.headers:
+                                del request.headers["x-api-key"]
+
+                            # Add OAuth Bearer token
+                            request.headers["Authorization"] = f"Bearer {self.access_token}"
+
+                            # Add required OAuth beta header
+                            request.headers["anthropic-beta"] = (
+                                "oauth-2025-04-20,claude-code-20250219,"
+                                "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+                            )
+
+                            return super().handle_request(request)
+
+                    # Create custom httpx client with OAuth transport
+                    http_client = httpx.Client(
+                        transport=OAuthTransport(oauth_config.access_token),
+                        timeout=600.0,
+                    )
+
+                    self._client = anthropic.Anthropic(
+                        api_key="dummy-key-will-be-replaced",  # Will be removed by transport
+                        base_url=self._provider_config.base_url,
+                        max_retries=5,
+                        timeout=600.0,
+                        http_client=http_client,
+                    )
+                    logger.info(
+                        "Anthropic client initialized with OAuth authentication"
+                    )
+                else:
+                    # Fallback to API key authentication
+                    logger.debug("Using API key authentication")
+                    self._client = anthropic.Anthropic(
+                        api_key=self._provider_config.get_api_key(),
+                        base_url=self._provider_config.base_url,
+                        max_retries=5,  # Increase from default 2 to handle overloaded errors
+                        timeout=600.0,  # 10 minutes timeout for long-running requests
+                    )
+                    logger.info("Anthropic client initialized successfully")
             except ImportError as e:
                 logger.error("Failed to import anthropic SDK", exc_info=True)
                 raise ImportError(
@@ -244,11 +387,14 @@ class Agent:
 
             # Call LLM with tools
             try:
+                # When using OAuth, exclude risk_level field (Anthropic OAuth API rejects custom fields)
+                include_risk = not bool(self._provider_config.oauth)
+
                 response = self.client.messages.create(
                     model=model,
                     max_tokens=4096,
                     messages=self.messages,
-                    tools=self.tool_registry.get_schemas(),
+                    tools=self.tool_registry.get_schemas(include_risk_level=include_risk),
                     system=system_prompt or self.system_prompt,
                 )
                 logger.debug(f"API response: stop_reason={response.stop_reason}")
@@ -997,11 +1143,14 @@ class Agent:
 
             # Stream LLM response
             try:
+                # When using OAuth, exclude risk_level field (Anthropic OAuth API rejects custom fields)
+                include_risk = not bool(self._provider_config.oauth)
+
                 with self.client.messages.stream(
                     model=model,
                     max_tokens=4096,
                     messages=self.messages,
-                    tools=self.tool_registry.get_schemas(),
+                    tools=self.tool_registry.get_schemas(include_risk_level=include_risk),
                     system=system_prompt or self.system_prompt,
                 ) as stream:
                     # Accumulate response

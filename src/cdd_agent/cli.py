@@ -260,7 +260,7 @@ def _run_single_message(
 
 
 def _run_interactive_chat(agent, ui: "StreamingUI", system: str, no_stream: bool):
-    """Run interactive chat loop.
+    """Run interactive chat loop with session management.
 
     Args:
         agent: Agent instance
@@ -268,10 +268,32 @@ def _run_interactive_chat(agent, ui: "StreamingUI", system: str, no_stream: bool
         system: System prompt
         no_stream: Whether to disable streaming
     """
+    import asyncio
+
+    from rich.markdown import Markdown
+
+    from .session import ChatSession
+
+    # Create chat session
+    session = ChatSession(
+        agent=agent,
+        provider_config=agent.provider_config,
+        tool_registry=agent.tool_registry,
+    )
+
+    _get_console().print(
+        "[dim]Type /help for commands, 'exit' to leave agent mode, "
+        "Ctrl+D to quit[/dim]\n"
+    )
+
     while True:
         try:
-            # Show prompt
-            ui.show_prompt(">")
+            # Show prompt (indicate agent mode if active)
+            if session.is_in_agent_mode():
+                agent_name = session.get_current_agent_name()
+                ui.show_prompt(f"[{agent_name}]>")
+            else:
+                ui.show_prompt(">")
 
             # Get user input
             user_input = input()
@@ -280,28 +302,38 @@ def _run_interactive_chat(agent, ui: "StreamingUI", system: str, no_stream: bool
             if not user_input.strip():
                 continue
 
-            # Handle slash commands
-            if user_input.startswith("/"):
-                if _handle_slash_command(user_input, agent, ui):
-                    break  # Exit if quit command
-                continue
+            # Process through session
+            response, should_exit = asyncio.run(session.process_input(user_input))
 
-            # Send to agent
-            _get_console().print()  # Blank line before response
+            # Handle session-level exit (not used yet)
+            if should_exit:
+                break
 
-            if no_stream:
-                from rich.markdown import Markdown
+            # If response is None, it's general chat - use existing agent
+            if response is None:
+                _get_console().print()  # Blank line before response
 
-                response = agent.run(user_input, system_prompt=system)
-                _get_console().print(Markdown(response))
+                if no_stream:
+                    response = agent.run(user_input, system_prompt=system)
+                    _get_console().print(Markdown(response))
+                else:
+                    event_stream = agent.stream(user_input, system_prompt=system)
+                    ui.stream_response(event_stream)
+
+                _get_console().print()  # Blank line after response
             else:
-                event_stream = agent.stream(user_input, system_prompt=system)
-                ui.stream_response(event_stream)
-
-            _get_console().print()  # Blank line after response
+                # Slash command or agent response
+                _get_console().print()
+                _get_console().print(Markdown(response))
+                _get_console().print()
 
         except KeyboardInterrupt:
-            _get_console().print("\n[dim]Use /quit to exit or Ctrl+D[/dim]")
+            if session.is_in_agent_mode():
+                _get_console().print(
+                    "\n[dim]Use 'exit' to leave agent mode or Ctrl+D to quit[/dim]"
+                )
+            else:
+                _get_console().print("\n[dim]Use /quit to exit or Ctrl+D[/dim]")
             continue
         except EOFError:
             break
@@ -310,21 +342,27 @@ def _run_interactive_chat(agent, ui: "StreamingUI", system: str, no_stream: bool
 def _handle_slash_command(command: str, agent: "Agent", ui: "StreamingUI") -> bool:
     """Handle slash commands.
 
+    Integrates both built-in commands (quit, clear, etc.) and CDD commands
+    (init, new) via the slash command router.
+
     Args:
-        command: Command string (e.g., "/help")
+        command: Command string (e.g., "/help", "/init", "/new ticket feature Auth")
         agent: Agent instance
         ui: UI instance
 
     Returns:
         True if should exit, False otherwise
     """
+    import asyncio
+
+    from rich.markdown import Markdown
+
+    from .slash_commands import get_router, setup_commands
+
     cmd = command.strip().lower()
 
-    if cmd == "/help":
-        ui.show_help()
-        return False
-
-    elif cmd == "/quit" or cmd == "/exit":
+    # Built-in session commands (have priority over CDD commands)
+    if cmd == "/quit" or cmd == "/exit":
         _get_console().print("[dim]Goodbye![/dim]")
         return True
 
@@ -355,15 +393,40 @@ def _handle_slash_command(command: str, agent: "Agent", ui: "StreamingUI") -> bo
         _get_console().print(f"[green]✓ Conversation saved to {filename}[/green]")
         return False
 
-    elif cmd == "/new":
+    elif cmd == "/new" and " " not in cmd:
+        # /new without arguments = start new conversation
         agent.clear_history()
         _get_console().print("[green]✓ Starting new conversation[/green]")
         return False
 
+    # Try CDD slash command router
     else:
-        _get_console().print(f"[red]Unknown command: {command}[/red]")
-        _get_console().print("[dim]Type /help for available commands[/dim]")
-        return False
+        # Initialize router on first use
+        router = get_router()
+        if not router._commands:
+            setup_commands(router)
+
+        # Check if it's a CDD command
+        if router.is_slash_command(command):
+            try:
+                # Execute command (async)
+                result = asyncio.run(router.execute(command))
+
+                # Display result with markdown formatting
+                _get_console().print()
+                _get_console().print(Markdown(result))
+                _get_console().print()
+
+                return False
+
+            except Exception as e:
+                _get_console().print(f"[red]Error executing command: {e}[/red]")
+                return False
+        else:
+            # Unknown command
+            _get_console().print(f"[red]Unknown command: {command}[/red]")
+            _get_console().print("[dim]Type /help for available commands[/dim]")
+            return False
 
 
 @cli.group()
@@ -389,6 +452,36 @@ def auth_setup():
     config = ConfigManager()
     auth_manager = AuthManager(config)
     auth_manager.interactive_setup()
+
+
+@auth.command(name="oauth")
+@click.option(
+    "--provider",
+    default="anthropic",
+    help="Provider to configure (default: anthropic)",
+)
+def auth_oauth(provider: str):
+    """Set up OAuth authentication for Claude Pro/Max plans.
+
+    Authenticate with your Claude Pro or Max subscription for zero-cost API access.
+    This opens a browser for OAuth authorization and stores refresh tokens that
+    automatically renew.
+
+    Two modes available:
+    - "max": OAuth tokens (auto-refresh, zero-cost for Pro/Max subscribers)
+    - "api-key": Create permanent API key via OAuth
+
+    Example:
+        cdd-agent auth oauth
+        cdd-agent auth oauth --provider anthropic
+    """
+    # Lazy imports - only load when OAuth setup is used
+    from .auth import AuthManager
+    from .config import ConfigManager
+
+    config = ConfigManager()
+    auth_manager = AuthManager(config)
+    auth_manager.setup_oauth_interactive(provider)
 
 
 @auth.command(name="status")

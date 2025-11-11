@@ -126,13 +126,27 @@ class ToolRegistry:
             # Called without arguments: @register
             return decorator(func)
 
-    def get_schemas(self) -> List[dict]:
+    def get_schemas(self, include_risk_level: bool = False) -> List[dict]:
         """Get all tool schemas for LLM.
+
+        Args:
+            include_risk_level: If True, include custom risk_level field.
+                               Set to False when using OAuth (Anthropic rejects custom fields)
 
         Returns:
             List of tool schemas in Anthropic format
         """
-        return list(self.schemas.values())
+        schemas = list(self.schemas.values())
+
+        if not include_risk_level:
+            # Remove risk_level field for API compatibility
+            # OAuth API rejects custom fields: "Extra inputs are not permitted"
+            schemas = [
+                {k: v for k, v in schema.items() if k != "risk_level"}
+                for schema in schemas
+            ]
+
+        return schemas
 
     def execute(self, name: str, args: dict) -> Any:
         """Execute a tool by name.

@@ -12,13 +12,16 @@ from textual import events, work
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.message import Message
+from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static, TextArea
 
 from . import __version__
 from .agent import Agent
 from .background_executor import get_background_executor
+from .session import ChatSession
 from .tools import RiskLevel
+from .utils.markdown_normalizer import normalize_markdown
 
 # Gold/yellow color scheme
 BRAND_COLOR = "#d4a574"  # Warm gold/tan color for consistency
@@ -78,6 +81,21 @@ def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80)
 class MessageWidget(Static):
     """A single message in the chat."""
 
+    # Use reactive property for selection state
+    is_selected = reactive(False)
+
+    class Selected(Message):
+        """Message sent when a message is selected/deselected."""
+
+        def __init__(self, message_widget: "MessageWidget") -> None:
+            """Initialize selected message.
+
+            Args:
+                message_widget: The message widget that was selected
+            """
+            self.message_widget = message_widget
+            super().__init__()
+
     def __init__(
         self,
         content: str,
@@ -97,96 +115,89 @@ class MessageWidget(Static):
         self.is_markdown = is_markdown
         super().__init__(**kwargs)
 
-    @staticmethod
-    def _convert_underline_headings(text: str) -> str:
-        """Convert underline-style headings to # syntax.
+    def watch_is_selected(self, new_value: bool) -> None:
+        """Watch for changes to is_selected and update display."""
+        # Update CSS class for background styling
+        if new_value:
+            self.add_class("selected")
+        else:
+            self.remove_class("selected")
 
-        Converts:
-            Heading
-            =======
-        To:
-            # Heading
+        # Re-render the content with new border style
+        # Only do this if the widget is mounted (has children)
+        if self.children:
+            try:
+                self.remove_children()
+                self.mount(*self.compose())
+            except Exception:
+                # If we can't re-render (e.g., no app context), just skip
+                pass
 
-        And:
-            Subheading
-            ----------
-        To:
-            ## Subheading
+    def on_click(self) -> None:
+        """Handle click on message - toggle selection."""
+        # Toggle selection state (this will trigger watch_is_selected)
+        self.is_selected = not self.is_selected
 
-        Args:
-            text: Markdown text potentially containing underline-style headings
-
-        Returns:
-            Converted markdown text with # syntax headings
-        """
-        import re
-
-        # Convert H1 style (text followed by ===)
-        text = re.sub(
-            r"^(.+)\n=+\s*$",
-            r"# \1",
-            text,
-            flags=re.MULTILINE,
-        )
-
-        # Convert H2 style (text followed by ---)
-        text = re.sub(
-            r"^(.+)\n-+\s*$",
-            r"## \1",
-            text,
-            flags=re.MULTILINE,
-        )
-
-        return text
+        # Post selection event for app-level handling if needed
+        try:
+            self.post_message(self.Selected(self))
+        except Exception:
+            # If post_message fails (e.g., in tests without app context), just skip
+            pass
 
     def compose(self) -> ComposeResult:
         """Compose the message."""
         # Choose style and format based on role
-        if self.role == "system":
-            # System messages (like welcome) - no border, just yellow text
+        if self.role == "system" and not self.is_markdown:
+            # Simple system messages (like welcome) - no border, just yellow text
             text = Text(self.content, style=BRAND_COLOR)
             yield Static(text)
         else:
             # Regular messages with panels
             if self.role == "user":
-                border_style = USER_COLOR
+                # Use brighter gold for selected state
+                border_style = "#ffd700" if self.is_selected else USER_COLOR
                 title = "Human"
                 title_align = "right"
             elif self.role == "assistant":
-                border_style = ASSISTANT_COLOR
+                # Use brand color (gold) for selected state
+                border_style = BRAND_COLOR if self.is_selected else ASSISTANT_COLOR
                 title = "Robot"
                 title_align = "left"
             elif self.role == "tool":
-                border_style = TOOL_COLOR
+                # Use brighter magenta for selected state
+                border_style = "#ff00ff" if self.is_selected else TOOL_COLOR
                 title = "🔧 Tool"
                 title_align = "left"
             elif self.role == "error":
-                border_style = ERROR_COLOR
+                # Use brighter red for selected state
+                border_style = "#ff0000" if self.is_selected else ERROR_COLOR
                 title = "⚠ Error"
                 title_align = "left"
             else:
-                border_style = DIM_COLOR
+                # Use brand color for selected state
+                border_style = BRAND_COLOR if self.is_selected else DIM_COLOR
                 title = "System"
                 title_align = "left"
 
             # Render content
-            if self.is_markdown and self.role == "assistant":
-                # Convert underline-style headings to # syntax
-                converted_content = self._convert_underline_headings(self.content)
+            if self.is_markdown:
+                # Normalize markdown for consistent rendering
+                normalized_content = normalize_markdown(self.content)
 
                 # Use Catppuccin syntax highlighting for code blocks
                 try:
                     from catppuccin.extras.pygments import FrappeStyle
 
                     content_widget = Markdown(
-                        converted_content,
+                        normalized_content,
                         code_theme=FrappeStyle,
                         inline_code_lexer="python",
                         inline_code_theme=FrappeStyle,
                     )
                 except ImportError:
                     # Fallback to default if catppuccin not available
-                    content_widget = Markdown(converted_content)
+                    content_widget = Markdown(normalized_content)
 
                 # Note: TUI uses Textual's Markdown widget which has its own styling
                 # Heading underlines are controlled by Textual's CSS, not Rich's Theme
@@ -209,9 +220,9 @@ class MessageWidget(Static):
         Args:
             new_content: New content to display
         """
-        # Convert underline-style headings before storing
+        # Normalize markdown before storing
         if self.is_markdown and self.role == "assistant":
-            self.content = self._convert_underline_headings(new_content)
+            self.content = normalize_markdown(new_content)
         else:
             self.content = new_content
         # Re-render the widget
@@ -613,6 +624,14 @@ class CDDAgentTUI(App):
         margin: 0 0 0 0;
     }
 
+    MessageWidget:hover {
+        background: $surface 20%;
+    }
+
+    MessageWidget.selected {
+        background: $surface 40%;
+    }
+
     /* Remove underlines from markdown headings */
     Markdown MarkdownH1 {
         text-style: bold;
@@ -681,13 +700,20 @@ class CDDAgentTUI(App):
         self._approval_event = threading.Event()
         self._approval_pending = False
         self._approval_selected_option = 1  # Default to Allow (1)
-        
+
         # Background process support
         self.background_executor = get_background_executor()
         self.background_processes: Dict[str, dict] = {}  # Track active processes
         self.background_monitor_active = False
         self._background_stop_event = threading.Event()
-        
+
+        # Initialize chat session for slash commands and agent switching
+        self.chat_session = ChatSession(
+            agent=agent,
+            provider_config=agent.provider_config,
+            tool_registry=agent.tool_registry,
+        )
+
         super().__init__(ansi_color=True)
 
     def request_approval(
@@ -1017,15 +1043,18 @@ class CDDAgentTUI(App):
         if new_lines:
             current_content = process_info['message_widget'].content or ""
             new_output = "\n".join(new_lines)
-            
+
             # Use code block formatting for output
             updated_content = current_content + f"\n```bash\n{new_output}\n```"
-            
+
             self.call_from_thread(
-                process_info['message_widget'].update_content, 
+                process_info['message_widget'].update_content,
                 updated_content
             )
             self.call_from_thread(chat_history.scroll_end, animate=False)
+
+            # Update last_line_count
+            process_info['last_line_count'] = len(process.output_lines)
     
     def _add_background_status_message(self, message: str) -> None:
         """Add a background process status message to the chat.
@@ -1168,43 +1197,17 @@ class CDDAgentTUI(App):
         Args:
             command: Command string
         """
+        import logging
+
+        logger = logging.getLogger("cdd_agent.tui")
+        logger.info(f"handle_command called with: {command}")
+
         cmd = command.strip().lower()
         chat_history = self.query_one("#chat-history", ChatHistory)
 
-        if cmd == "/help":
-            help_text = """**Available Commands:**
-
-- `/help` - Show this help
-- `/clear` - Clear conversation history
-- `/new` - Start new conversation
-- `/quit` - Exit (or Ctrl+C)
-
-**Keyboard Shortcuts:**
-
-- `Enter` - Send message
-- `Ctrl+J` - New line in message
-- `Ctrl+L` - Clear chat
-- `Ctrl+N` - New conversation
-- `Ctrl+C` - Quit
-- `F1` - Help
-
-**Background Process Management:**
-
-- `Ctrl+B` - Show all background processes
-- `Ctrl+I` - Interrupt all running processes
-- `Ctrl+O` - Show output of last process
-
-**Tool Approval (when prompted):**
-
-- `1` or `a` - Allow (immediate)
-- `2` or `d` - Deny (immediate)
-- `3` or `s` - Session (immediate)
-- `←/→` or `Tab` - Navigate options
-- `Enter` - Confirm selected option
-"""
-            chat_history.add_message(help_text, role="system", is_markdown=True)
-
-        elif cmd == "/clear" or cmd == "/new":
+        # Check if it's a built-in TUI command
+        if cmd == "/clear" or cmd == "/new":
+            logger.debug("Handling built-in clear/new command")
             self.agent.clear_history()
             # Clear chat history widget
             chat_history.remove_children()
@@ -1215,11 +1218,75 @@ class CDDAgentTUI(App):
             )
 
         elif cmd == "/quit":
+            logger.debug("Handling quit command")
             self.exit()
 
         else:
-            chat_history.add_message(
-                f"Unknown command: {command}\nType /help for available commands.",
+            # Try to handle it with the chat session's slash command router
+            # Use a worker to execute async command (Textual handles the event loop)
+            logger.info(f"Routing command to slash command router: {command}")
+            self.execute_slash_command_worker(command, chat_history)
+
+    @work(exclusive=False, thread=True)
+    def execute_slash_command_worker(self, command: str, chat_history):
+        """Execute slash command in a worker thread.
+
+        Args:
+            command: Slash command to execute
+            chat_history: Chat history widget to display result
+        """
+        import asyncio
+        import logging
+
+        logger = logging.getLogger("cdd_agent.tui")
+        logger.info(f"Executing slash command: {command}")
+
+        # Create async function to execute command
+        async def execute_command():
+            try:
+                logger.debug(f"Calling router.execute for: {command}")
+                # Execute the command through the router
+                result = await self.chat_session.slash_router.execute(command)
+                logger.debug(f"Router returned result: {result[:100] if result else None}...")
+                return result, None
+            except Exception as e:
+                logger.error(f"Error executing command: {e}", exc_info=True)
+                return None, str(e)
+
+        # Run in new event loop (since we're in a worker thread)
+        try:
+            logger.debug("Creating new event loop")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result, error = loop.run_until_complete(execute_command())
+            loop.close()
+            logger.debug(f"Event loop completed. Result: {bool(result)}, Error: {bool(error)}")
+
+            if error:
+                logger.error(f"Command failed with error: {error}")
+                # Display error on the main thread
+                self.call_from_thread(
+                    chat_history.add_message,
+                    f"❌ Error: {error}",
+                    role="error",
+                    is_markdown=False,
+                )
+            elif result:
+                logger.info(f"Command succeeded, displaying result")
+                # Display the result on the main thread
+                self.call_from_thread(
+                    chat_history.add_message,
+                    result,
+                    role="system",
+                    is_markdown=True,
+                )
+            else:
+                logger.warning("Command returned no result and no error")
+        except Exception as e:
+            logger.error(f"Unexpected error in worker: {e}", exc_info=True)
+            self.call_from_thread(
+                chat_history.add_message,
+                f"❌ Unexpected error: {str(e)}",
                 role="error",
                 is_markdown=False,
             )
