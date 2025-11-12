@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cdd-agent"
-version = "0.0.4"
+version = "0.0.5"
 description = "AI coding assistant with structured CDD workflows - LLM agnostic terminal agent"
 authors = ["Guilherme Gouw <guilherme.gouw@gmail.com>"]
 license = "MIT"

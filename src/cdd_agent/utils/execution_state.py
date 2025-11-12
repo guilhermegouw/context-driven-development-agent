@@ -1,14 +1,72 @@
 """Execution state tracking for the Executor Agent.
 
 This module provides data structures for tracking the progress of
-autonomous code execution.
+autonomous code execution, and execution mode definitions that control
+which tools are available to the agent.
 """
 
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+
+class ExecutionMode(Enum):
+    """Execution modes for the agent.
+
+    Modes:
+        NORMAL: Full tool access (default behavior)
+        PLAN: Read-only mode for exploration and planning without modifications
+    """
+
+    NORMAL = "normal"
+    PLAN = "plan"
+
+    def is_read_only(self) -> bool:
+        """Check if this mode restricts to read-only operations.
+
+        Returns:
+            True if mode is read-only (PLAN), False otherwise
+        """
+        return self == ExecutionMode.PLAN
+
+    def get_display_name(self) -> str:
+        """Get human-readable display name for the mode.
+
+        Returns:
+            Display name string
+        """
+        if self == ExecutionMode.NORMAL:
+            return "Normal"
+        elif self == ExecutionMode.PLAN:
+            return "Plan"
+        return self.value.capitalize()
+
+    def get_icon(self) -> str:
+        """Get emoji icon for the mode.
+
+        Returns:
+            Emoji string representing the mode
+        """
+        if self == ExecutionMode.NORMAL:
+            return "▶"  # Play icon for normal execution
+        elif self == ExecutionMode.PLAN:
+            return "⏸"  # Pause icon for plan mode
+        return "•"
+
+    def get_description(self) -> str:
+        """Get detailed description of the mode.
+
+        Returns:
+            Description string
+        """
+        if self == ExecutionMode.NORMAL:
+            return "Full tool access"
+        elif self == ExecutionMode.PLAN:
+            return "Read-only (exploration and planning)"
+        return ""
 
 
 @dataclass
