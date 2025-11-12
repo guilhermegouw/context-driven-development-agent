@@ -95,6 +95,11 @@ def cli():
     is_flag=True,
     help="Disable hierarchical context loading (CLAUDE.md, CDD.md)",
 )
+@click.option(
+    "--plan",
+    is_flag=True,
+    help="Start in Plan Mode (read-only exploration mode)",
+)
 def chat(
     prompt: str,
     provider: str,
@@ -104,6 +109,7 @@ def chat(
     simple: bool,
     approval: str,
     no_context: bool,
+    plan: bool,
 ):
     """Interactive chat with AI agent.
 
@@ -146,6 +152,7 @@ def chat(
     try:
         # Lazy imports - only load when chat command is actually executed
         from .agent import Agent
+        from .utils.execution_state import ExecutionMode
 
         # Load provider config
         provider_config = config.get_effective_config(provider)
@@ -154,6 +161,10 @@ def chat(
         approval_mode = config.get_effective_approval_mode(approval)
         # TODO: Pass approval_mode to ApprovalManager when integrating Phase 2
         _ = approval_mode  # noqa: F841 - Will be used in Phase 2 integration
+
+        # Get effective execution mode (CLI flag > env var > settings > default)
+        execution_mode_str = config.get_effective_execution_mode(plan_flag=plan)
+        execution_mode = ExecutionMode.PLAN if execution_mode_str == "plan" else ExecutionMode.NORMAL
 
         # Create tool registry with default tools
         tool_registry = create_default_registry()
@@ -165,6 +176,7 @@ def chat(
             model_tier=model,
             max_iterations=100,  # Increased to 100 for complex tasks
             enable_context=not no_context,  # Invert flag (--no-context disables)
+            execution_mode=execution_mode,
         )
 
         # Decide which UI to use
@@ -209,6 +221,7 @@ def chat(
                 model=provider_config.get_model(model),
                 system_prompt=system,
                 approval_mode=approval_mode,
+                execution_mode=execution_mode,
             )
 
     except KeyboardInterrupt:

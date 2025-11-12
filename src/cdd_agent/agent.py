@@ -18,6 +18,7 @@ from .config import ProviderConfig
 from .context import ContextLoader
 from .logging import get_logger
 from .tools import ToolRegistry
+from .utils.execution_state import ExecutionMode
 
 console = Console()
 logger = get_logger("agent")
@@ -145,6 +146,7 @@ class Agent:
         max_iterations: int = 10,
         approval_manager: Optional[ApprovalManager] = None,
         enable_context: bool = True,
+        execution_mode: ExecutionMode = ExecutionMode.NORMAL,
     ):
         """Initialize agent.
 
@@ -155,6 +157,7 @@ class Agent:
             max_iterations: Maximum conversation iterations
             approval_manager: Optional approval manager for tool execution safety
             enable_context: Whether to load hierarchical context files (default: True)
+            execution_mode: Execution mode (NORMAL or PLAN for read-only)
         """
         self.provider_config = provider_config
         self.tool_registry = tool_registry
@@ -162,6 +165,7 @@ class Agent:
         self.max_iterations = max_iterations
         self.approval_manager = approval_manager
         self.enable_context = enable_context
+        self.execution_mode = execution_mode
         self.messages: List[Dict[str, Any]] = []
 
         # Lazy Anthropic client - will be initialized when first needed
@@ -378,11 +382,15 @@ class Agent:
             # Manage context window before each LLM call
             self._manage_context_window()
 
+            # Filter tools based on execution mode
+            read_only = self.execution_mode.is_read_only()
+
             # Log API request details for debugging
             logger.debug(
                 f"API request: model={model}, "
                 f"messages_count={len(self.messages)}, "
-                f"tools_count={len(self.tool_registry.get_schemas())}"
+                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}, "
+                f"execution_mode={self.execution_mode.value}"
             )
 
             # Call LLM with tools
@@ -394,7 +402,9 @@ class Agent:
                     model=model,
                     max_tokens=4096,
                     messages=self.messages,
-                    tools=self.tool_registry.get_schemas(include_risk_level=include_risk),
+                    tools=self.tool_registry.get_schemas(
+                        include_risk_level=include_risk, read_only=read_only
+                    ),
                     system=system_prompt or self.system_prompt,
                 )
                 logger.debug(f"API response: stop_reason={response.stop_reason}")
@@ -1134,11 +1144,15 @@ class Agent:
             # Manage context window before each LLM call
             self._manage_context_window()
 
+            # Filter tools based on execution mode
+            read_only = self.execution_mode.is_read_only()
+
             # Log API request details for debugging
             logger.debug(
                 f"Streaming API request: model={model}, "
                 f"messages_count={len(self.messages)}, "
-                f"tools_count={len(self.tool_registry.get_schemas())}"
+                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}, "
+                f"execution_mode={self.execution_mode.value}"
             )
 
             # Stream LLM response
@@ -1150,7 +1164,9 @@ class Agent:
                     model=model,
                     max_tokens=4096,
                     messages=self.messages,
-                    tools=self.tool_registry.get_schemas(include_risk_level=include_risk),
+                    tools=self.tool_registry.get_schemas(
+                        include_risk_level=include_risk, read_only=read_only
+                    ),
                     system=system_prompt or self.system_prompt,
                 ) as stream:
                     # Accumulate response
@@ -1383,6 +1399,15 @@ Keep it concise (3-5 bullet points)."""
     def clear_history(self):
         """Clear conversation history."""
         self.messages = []
+
+    def set_execution_mode(self, mode: ExecutionMode):
+        """Set execution mode (for runtime toggling).
+
+        Args:
+            mode: ExecutionMode (NORMAL or PLAN)
+        """
+        self.execution_mode = mode
+        logger.debug(f"Execution mode changed to: {mode.value}")
 
 
 class SimpleAgent:

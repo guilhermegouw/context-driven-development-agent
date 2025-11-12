@@ -126,17 +126,40 @@ class ToolRegistry:
             # Called without arguments: @register
             return decorator(func)
 
-    def get_schemas(self, include_risk_level: bool = False) -> List[dict]:
+    def get_schemas(
+        self, include_risk_level: bool = False, read_only: bool = False
+    ) -> List[dict]:
         """Get all tool schemas for LLM.
 
         Args:
             include_risk_level: If True, include custom risk_level field.
                                Set to False when using OAuth (Anthropic rejects custom fields)
+            read_only: If True, only return SAFE (read-only) tools for Plan Mode
 
         Returns:
             List of tool schemas in Anthropic format
+
+        Read-only tools (RiskLevel.SAFE):
+            - read_file: Read file contents
+            - list_files: List directory contents
+            - glob_files: Find files by pattern
+            - grep_files: Search file contents
+            - git_status: Check git status
+            - git_diff: View git diff
+            - git_log: View git log
+            - get_background_status: Check background process status
+            - get_background_output: Get background process output
+            - list_background_processes: List all background processes
         """
         schemas = list(self.schemas.values())
+
+        # Filter to read-only tools if requested (for Plan Mode)
+        if read_only:
+            schemas = [
+                schema
+                for schema in schemas
+                if schema.get("risk_level") == RiskLevel.SAFE.value
+            ]
 
         if not include_risk_level:
             # Remove risk_level field for API compatibility

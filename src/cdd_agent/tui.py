@@ -5,7 +5,6 @@ import threading
 import time
 from typing import Dict, Optional
 
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 from textual import events, work
@@ -21,6 +20,7 @@ from .agent import Agent
 from .background_executor import get_background_executor
 from .session import ChatSession
 from .tools import RiskLevel
+from .utils.custom_markdown import LeftAlignedMarkdown
 from .utils.markdown_normalizer import normalize_markdown
 
 # Gold/yellow color scheme
@@ -42,7 +42,7 @@ TAGLINE = "Context captured once. AI understands forever."
 SUBTITLE = "Context-Driven Development"
 
 
-def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80) -> str:
+def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80, execution_mode=None) -> str:
     """Create centered welcome message text.
 
     Args:
@@ -50,10 +50,13 @@ def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80)
         model: Model name
         cwd: Current working directory
         width: Terminal width for centering
+        execution_mode: Optional ExecutionMode to display
 
     Returns:
         Formatted welcome message
     """
+    from .utils.execution_state import ExecutionMode
+
     # Center each line of ASCII logo
     lines = [
         "",
@@ -71,8 +74,15 @@ def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80)
         "",
         f"Provider: {provider} • Model: {model}",
         f"Folder: {cwd}",
-        "",
     ]
+
+    # Add mode indicator if in Plan Mode
+    if execution_mode == ExecutionMode.PLAN:
+        mode_icon = execution_mode.get_icon()
+        mode_name = execution_mode.get_display_name()
+        lines.append(f"Mode: {mode_icon} {mode_name} (read-only) • Shift+Tab to toggle")
+
+    lines.append("")
 
     # Center align all lines based on terminal width
     return "\n".join(line.center(width) for line in lines)
@@ -189,7 +199,7 @@ class MessageWidget(Static):
                 try:
                     from catppuccin.extras.pygments import FrappeStyle
 
-                    content_widget = Markdown(
+                    content_widget = LeftAlignedMarkdown(
                         normalized_content,
                         code_theme=FrappeStyle,
                         inline_code_lexer="python",
@@ -197,7 +207,7 @@ class MessageWidget(Static):
                     )
                 except ImportError:
                     # Fallback to default if catppuccin not available
-                    content_widget = Markdown(normalized_content)
+                    content_widget = LeftAlignedMarkdown(normalized_content)
 
                 # Note: TUI uses Textual's Markdown widget which has its own styling
                 # Heading underlines are controlled by Textual's CSS, not Rich's Theme
@@ -353,11 +363,18 @@ class CustomTextArea(TextArea):
             return
 
         # Ctrl+J or Shift+Enter - insert newline
-        if event.key in ("ctrl+j", "shift+enter", "ctrl+m"):
+        if event.key in ("ctrl+j", "shift+enter"):
             event.prevent_default()
             event.stop()
             # Insert newline using TextArea's replace method
             self.replace("\n", self.selection.end, self.selection.end)
+            return
+
+        # Shift+Tab - Toggle execution mode (Claude Code style)
+        if event.key == "shift+tab":
+            event.prevent_default()
+            event.stop()
+            app.action_toggle_execution_mode()
             return
 
         # Background process shortcuts (only when not in approval mode)
@@ -632,29 +649,35 @@ class CDDAgentTUI(App):
         background: $surface 40%;
     }
 
-    /* Remove underlines from markdown headings */
+    /* Remove underlines from markdown headings and left-align them */
     Markdown MarkdownH1 {
         text-style: bold;
+        text-align: left;
     }
 
     Markdown MarkdownH2 {
         text-style: bold;
+        text-align: left;
     }
 
     Markdown MarkdownH3 {
         text-style: bold;
+        text-align: left;
     }
 
     Markdown MarkdownH4 {
         text-style: bold;
+        text-align: left;
     }
 
     Markdown MarkdownH5 {
         text-style: bold;
+        text-align: left;
     }
 
     Markdown MarkdownH6 {
         text-style: bold;
+        text-align: left;
     }
     """
 
@@ -682,6 +705,7 @@ class CDDAgentTUI(App):
         provider: str,
         model: str,
         system_prompt: Optional[str] = None,
+        execution_mode=None,
     ):
         """Initialize TUI app.
 
@@ -690,12 +714,16 @@ class CDDAgentTUI(App):
             provider: Provider name
             model: Model name
             system_prompt: Optional system prompt
+            execution_mode: ExecutionMode (NORMAL or PLAN)
         """
+        from .utils.execution_state import ExecutionMode
+
         self.agent = agent
         self.provider = provider
         self.model = model
         self.system_prompt = system_prompt
         self.cwd = os.getcwd()
+        self.execution_mode = execution_mode or ExecutionMode.NORMAL
         self._approval_result: Optional[bool] = None
         self._approval_event = threading.Event()
         self._approval_pending = False
@@ -843,24 +871,39 @@ class CDDAgentTUI(App):
             yield CustomTextArea(
                 id="message-input",
             )
+
+            # Mode indicator bar (replaces hints)
+            from .utils.execution_state import ExecutionMode
+
+            if self.execution_mode == ExecutionMode.PLAN:
+                mode_icon = self.execution_mode.get_icon()
+                mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Press Shift+Tab to switch to Normal Mode"
+                mode_style = "#d4a574"  # Purple/gold for Plan Mode
+            else:
+                mode_icon = self.execution_mode.get_icon()
+                mode_text = f"{mode_icon} NORMAL MODE - Press Shift+Tab to switch to Plan Mode"
+                mode_style = "dim"  # Dim for Normal Mode
+
             yield Static(
-                "Enter Send • Ctrl+J New line • Ctrl+C Quit • Ctrl+L Clear • Ctrl+B Background • Ctrl+I Interrupt",
-                id="hint-text",
+                f"[{mode_style}]{mode_text}[/{mode_style}]",
+                id="mode-indicator",
             )
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
+        from .utils.execution_state import ExecutionMode
+
         # Add welcome message to chat with terminal width
         chat_history = self.query_one("#chat-history", ChatHistory)
         terminal_width = self.size.width - 4  # Account for padding
         welcome_text = create_welcome_message(
-            self.provider, self.model, self.cwd, terminal_width
+            self.provider, self.model, self.cwd, terminal_width, self.execution_mode
         )
         chat_history.add_message(welcome_text, role="system", is_markdown=False)
 
         # Focus the input
         self.query_one("#message-input", CustomTextArea).focus()
-        
+
         # Start background process monitoring
         self._start_background_monitoring()
 
@@ -1473,6 +1516,39 @@ class CDDAgentTUI(App):
         """New conversation (Ctrl+N)."""
         self.handle_command("/new")
 
+    def action_toggle_execution_mode(self) -> None:
+        """Toggle execution mode between NORMAL and PLAN (Ctrl+M)."""
+        from .utils.execution_state import ExecutionMode
+        from rich.text import Text
+
+        # Toggle mode
+        if self.execution_mode == ExecutionMode.NORMAL:
+            self.execution_mode = ExecutionMode.PLAN
+        else:
+            self.execution_mode = ExecutionMode.NORMAL
+
+        # Update agent's mode
+        self.agent.set_execution_mode(self.execution_mode)
+
+        # Update mode indicator bar
+        mode_indicator = self.query_one("#mode-indicator", Static)
+        mode_icon = self.execution_mode.get_icon()
+
+        if self.execution_mode == ExecutionMode.PLAN:
+            mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Press Shift+Tab to switch to Normal Mode"
+            mode_indicator.update(Text.from_markup(f"[#d4a574]{mode_text}[/#d4a574]"))
+        else:
+            mode_text = f"{mode_icon} NORMAL MODE - Press Shift+Tab to switch to Plan Mode"
+            mode_indicator.update(Text.from_markup(f"[dim]{mode_text}[/dim]"))
+
+        # Show brief confirmation in status widget
+        status_widget = self.query_one("#status-widget", StatusWidget)
+        mode_name = self.execution_mode.get_display_name()
+
+        status_widget.add_event(
+            f"[#d4a574]✓ Switched to {mode_name} Mode[/#d4a574]"
+        )
+
     def action_show_background_processes(self) -> None:
         """Show background processes (Ctrl+B)."""
         processes = self.background_executor.list_all_processes()
@@ -1568,6 +1644,7 @@ def run_tui(
     model: str,
     system_prompt: Optional[str] = None,
     approval_mode=None,
+    execution_mode=None,
 ):
     """Run the Textual TUI.
 
@@ -1577,8 +1654,15 @@ def run_tui(
         model: Model name
         system_prompt: Optional system prompt
         approval_mode: Optional approval mode (if set, creates ApprovalManager)
+        execution_mode: Optional execution mode (NORMAL or PLAN)
     """
-    app = CDDAgentTUI(agent, provider, model, system_prompt)
+    from .utils.execution_state import ExecutionMode
+
+    # Use agent's execution mode if not provided
+    if execution_mode is None:
+        execution_mode = agent.execution_mode
+
+    app = CDDAgentTUI(agent, provider, model, system_prompt, execution_mode)
 
     # If approval mode is set, create ApprovalManager and wire it to agent
     if approval_mode:

@@ -87,8 +87,17 @@ class Settings(BaseModel):
     default_provider: str = "anthropic"
     providers: Dict[str, ProviderConfig]
     approval_mode: ApprovalMode = ApprovalMode.BALANCED
+    default_execution_mode: str = "normal"  # "normal" or "plan"
     ui: Dict[str, Any] = Field(default_factory=dict)
     conversation: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("default_execution_mode")
+    @classmethod
+    def validate_execution_mode(cls, v: str) -> str:
+        """Validate execution mode is either 'normal' or 'plan'."""
+        if v not in ("normal", "plan"):
+            raise ValueError("default_execution_mode must be 'normal' or 'plan'")
+        return v
 
     def get_provider(self, name: Optional[str] = None) -> ProviderConfig:
         """Get provider config by name or default."""
@@ -252,3 +261,40 @@ class ConfigManager:
 
         # Priority 3: Settings file
         return settings.approval_mode
+
+    def get_effective_execution_mode(self, plan_flag: bool = False) -> str:
+        """Get effective execution mode with environment variable and CLI override.
+
+        Priority order (highest to lowest):
+        1. CLI flag override (--plan)
+        2. CDD_EXECUTION_MODE environment variable
+        3. Settings file value (default_execution_mode)
+        4. Default ("normal")
+
+        Args:
+            plan_flag: CLI --plan flag (True means Plan Mode)
+
+        Returns:
+            Execution mode string ("normal" or "plan")
+
+        Raises:
+            ValueError: If invalid execution mode specified
+        """
+        settings = self.load()
+
+        # Priority 1: CLI flag override
+        if plan_flag:
+            return "plan"
+
+        # Priority 2: Environment variable
+        env_mode = os.getenv("CDD_EXECUTION_MODE")
+        if env_mode:
+            if env_mode not in ("normal", "plan"):
+                raise ValueError(
+                    f"Invalid CDD_EXECUTION_MODE: {env_mode}. "
+                    "Valid modes: normal, plan"
+                )
+            return env_mode
+
+        # Priority 3: Settings file
+        return settings.default_execution_mode
