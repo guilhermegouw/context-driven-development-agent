@@ -1,45 +1,30 @@
 # Feature Ticket Template
-# This template shows the structure Socrates uses for feature specifications
+# IMPORTANT: Only include information explicitly discussed with the user.
+# Delete any section that was not covered in the conversation.
+# Do NOT invent details, estimates, or technical assumptions.
 
-title: "[Descriptive feature title]"
+title: ""  # Brief, descriptive title from the conversation
 
-user_story: |
-  As a [type of user],
-  I want [capability or feature],
-  So that [benefit or value].
+type: feature  # Required by planner
 
-business_value: |
-  [Why this feature matters to the business]
+description: |
+  # Summarize what this feature does and why - from the conversation only
+  # This field is required and should be at least 100 characters
 
-  Business Impact: [Measurable impact - revenue, users, efficiency, etc.]
-
-acceptance_criteria:
-  - [Specific, testable criterion 1]
-  - [Specific, testable criterion 2]
-  - [Specific, testable criterion 3]
-  # Add as many as needed to define "done"
+acceptance_criteria: []
+  # List ONLY criteria explicitly mentioned by the user
+  # Do not invent additional criteria to "fill in" the template
+  # Need at least 2 criteria
 
 implementation_scope:
-  frontend:
-    - [UI component or change 1]
-    - [UI component or change 2]
-  backend:
-    - [API endpoint or service 1]
-    - [API endpoint or service 2]
-  database:
-    - [Schema change or data model 1]
-    - [Schema change or data model 2]
+  # DELETE any subsection not relevant to this feature
+  # For CLI tools: "frontend" is usually not applicable - delete it
+  frontend: []   # Delete if not a web/UI feature
+  backend: []    # Include only if backend changes were discussed
+  database: []   # Include only if data storage was discussed
 
-technical_considerations: |
-  [Important technical aspects the team should know]
-  - Performance implications
-  - Security concerns
-  - Dependencies on other systems
-  - Risks or challenges
+technical_notes: |
+  # Include ONLY technical aspects the user mentioned
+  # Delete this section if no technical details were discussed
 
-ticket:
-  type: feature
-  priority: [high/medium/low]
-  estimated_effort: [time estimate]
-  created: [auto-generated]
-  updated: [auto-generated]
+priority: ""  # Leave empty if not discussed - do NOT guess

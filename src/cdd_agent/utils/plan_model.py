@@ -84,13 +84,19 @@ class ImplementationPlan:
             >>> plan.to_markdown()
             '# Implementation Plan: User Authentication\\n...'
         """
-        md = f"""# Implementation Plan: {self.ticket_title}
+        # Build header - only include estimated time if provided
+        header = f"""# Implementation Plan: {self.ticket_title}
 
 **Ticket:** `{self.ticket_slug}`
 **Type:** {self.ticket_type}
-**Complexity:** {self.total_complexity}
-**Estimated Time:** {self.total_estimated_time}
-**Created:** {self.created_at}
+**Complexity:** {self.total_complexity}"""
+
+        if self.total_estimated_time:
+            header += f"\n**Estimated Time:** {self.total_estimated_time}"
+
+        header += f"\n**Created:** {self.created_at}"
+
+        md = f"""{header}
 
 ---
 
@@ -119,13 +125,19 @@ class ImplementationPlan:
             else:
                 files_section = "**Files Affected:** None specified\n"
 
-            md += f"""### Step {step.number}: {step.title}
+            # Build step section - only include estimated time if provided
+            step_header = f"""### Step {step.number}: {step.title}
 
 **Description:** {step.description}
 
-**Complexity:** {step.complexity}
-**Estimated Time:** {step.estimated_time}
-**Dependencies:** {deps}
+**Complexity:** {step.complexity}"""
+
+            if step.estimated_time:
+                step_header += f"\n**Estimated Time:** {step.estimated_time}"
+
+            step_header += f"\n**Dependencies:** {deps}"
+
+            md += f"""{step_header}
 
 {files_section}
 ---

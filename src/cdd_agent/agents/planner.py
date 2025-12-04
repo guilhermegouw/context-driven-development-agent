@@ -2,9 +2,17 @@
 
 This agent creates detailed, step-by-step implementation plans for tickets
 that have been refined by the Socrates Agent.
+
+Key Features:
+- Loads project context from CDD.md/CLAUDE.md
+- Scans actual codebase structure for accurate file paths
+- Uses direct LLM call (no tool loop) for plan generation
+- Validates generated plans against actual codebase
 """
 
+import json
 import logging
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -59,6 +67,11 @@ class PlannerAgent(BaseAgent):
         self.spec = None
         self.plan: Optional[ImplementationPlan] = None
         self.plan_path: Optional[Path] = None
+
+        # Context for planning (loaded during initialize)
+        self.project_context: str = ""  # From CDD.md/CLAUDE.md
+        self.codebase_structure: str = ""  # File tree
+        self.relevant_files: dict[str, str] = {}  # path -> content snippets
 
     def initialize(self) -> str:
         """Load spec and generate implementation plan.
@@ -238,7 +251,13 @@ class PlannerAgent(BaseAgent):
             )
 
     async def _generate_plan(self) -> ImplementationPlan:
-        """Generate implementation plan using LLM.
+        """Generate implementation plan using LLM with full project context.
+
+        This method:
+        1. Gathers project context (CDD.md, file structure, relevant files)
+        2. Builds a comprehensive prompt with all context
+        3. Makes a DIRECT LLM call (no tool loop)
+        4. Parses and validates the JSON response
 
         Returns:
             Generated ImplementationPlan
@@ -246,98 +265,151 @@ class PlannerAgent(BaseAgent):
         Raises:
             Exception: If plan generation fails
         """
-        logger.debug("Building LLM prompt for plan generation")
-        # Build LLM prompt
-        prompt = self._build_planning_prompt()
+        logger.info("Starting intelligent plan generation")
 
-        # Call LLM
+        # Step 1: Gather context
+        logger.debug("Gathering project context...")
+        self.project_context = self._load_project_context()
+        self.codebase_structure = self._scan_codebase_structure()
+        self.relevant_files = self._find_relevant_files()
+
+        logger.info(
+            f"Context gathered: {len(self.project_context)} chars project context, "
+            f"{len(self.codebase_structure)} chars structure, "
+            f"{len(self.relevant_files)} relevant files"
+        )
+
+        # Step 2: Build comprehensive prompt
+        system_prompt = self._build_planning_prompt()
+        user_message = self._build_planning_request()
+
+        # Step 3: Make direct LLM call (no tools)
         try:
             if hasattr(self.session, "general_agent") and self.session.general_agent:
-                logger.debug("Calling LLM for plan generation")
-                response = self.session.general_agent.run(
-                    message="Generate implementation plan",
-                    system_prompt=prompt,
-                )
-                logger.debug(f"Received LLM response (length: {len(response)})")
+                agent = self.session.general_agent
+                model = agent.provider_config.get_model(agent.model_tier)
 
-                # Parse JSON response
+                logger.info(f"Calling LLM directly for plan generation (model: {model})")
+
+                # Direct API call - NO TOOLS
+                response = agent.client.messages.create(
+                    model=model,
+                    max_tokens=4096,
+                    messages=[{"role": "user", "content": user_message}],
+                    system=system_prompt,
+                    # No tools parameter - we want pure JSON output
+                )
+
+                # Extract text response
+                response_text = ""
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        response_text += block.text
+                    elif isinstance(block, dict) and "text" in block:
+                        response_text += block["text"]
+
+                logger.debug(f"LLM response length: {len(response_text)} chars")
+                logger.debug(f"LLM response preview: {response_text[:500]}...")
+
+                # Step 4: Parse JSON response
                 ticket_slug = self.target_path.parent.name
-                plan = ImplementationPlan.from_json(
-                    response,
+                plan = self._parse_plan_response(
+                    response_text,
                     ticket_slug=ticket_slug,
-                    ticket_title=self.spec.title,
-                    ticket_type=self.spec.type,
                 )
-                logger.info(f"Successfully parsed LLM plan: {len(plan.steps)} steps")
 
+                # Step 5: Validate plan
+                validation_warnings = self._validate_plan(plan)
+                if validation_warnings:
+                    logger.warning(f"Plan validation warnings: {validation_warnings}")
+                    # Add warnings to risks
+                    plan.risks.extend(validation_warnings)
+
+                logger.info(f"Successfully generated plan: {len(plan.steps)} steps")
                 return plan
-            else:
-                # Fallback: Generate basic heuristic plan
-                logger.info("No LLM available, using heuristic plan")
-                return self._generate_heuristic_plan()
 
-        except Exception as e:
-            # Fallback on error
-            logger.warning(
-                f"LLM plan generation failed ({e}), falling back to heuristic"
+            else:
+                logger.error("No LLM available for plan generation")
+                raise RuntimeError(
+                    "LLM not available. Please ensure you're authenticated with an LLM provider."
+                )
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            raise RuntimeError(
+                f"LLM returned invalid JSON. Please try again.\nError: {e}"
             )
-            return self._generate_heuristic_plan()
+        except Exception as e:
+            logger.error(f"Plan generation failed: {e}", exc_info=True)
+            raise RuntimeError(f"Plan generation failed: {e}")
 
     def _build_planning_prompt(self) -> str:
-        """Build LLM prompt for plan generation.
+        """Build comprehensive system prompt for plan generation.
+
+        Includes project context, architecture patterns, and constraints.
 
         Returns:
             System prompt for LLM
         """
-        ac_text = "\n".join(f"- {ac}" for ac in self.spec.acceptance_criteria)
+        return f'''You are an expert software architect creating implementation plans.
 
-        return f"""You are an expert software architect creating \
-implementation plans.
+## YOUR ROLE
 
-Given this ticket specification:
+You create precise, actionable implementation plans that:
+- Use ACTUAL file paths from the codebase (not generic paths)
+- Follow the project's existing architecture and patterns
+- Break work into clear, testable steps
+- Identify real files that need modification
 
-**Title:** {self.spec.title}
-**Type:** {self.spec.type}
+## PROJECT CONTEXT
 
-**Description:**
-{self.spec.description}
+{self.project_context if self.project_context else "No project context file (CDD.md/CLAUDE.md) found."}
 
-**Acceptance Criteria:**
-{ac_text or "None specified"}
+## CODEBASE STRUCTURE
 
-**Technical Notes:**
-{self.spec.technical_notes or "None provided"}
+```
+{self.codebase_structure}
+```
 
-Create a detailed implementation plan with:
-1. High-level approach overview (2-3 sentences)
-2. Step-by-step implementation tasks (5-10 steps)
-3. Complexity estimate for each step (simple/medium/complex)
-4. Time estimates (15min/30min/1hr/2hr/4hr)
-5. File paths that will be affected
-6. Dependencies between steps (by step number)
-7. Potential risks or challenges
+## RELEVANT FILES
 
-**IMPORTANT:** Respond ONLY with valid JSON in this exact structure:
+These files may need to be modified or referenced:
+{self._format_relevant_files()}
+
+## IMPORTANT GUIDELINES
+
+1. **Use REAL paths** - Only reference files that exist in the codebase structure above
+2. **Follow existing patterns** - Look at how similar features are implemented
+3. **Be specific** - Don't say "update the config", say which config file
+4. **Keep it focused** - Only include steps directly needed for this feature
+5. **No time estimates** - The project doesn't use time estimates (per project guidelines)
+
+## OUTPUT FORMAT
+
+Respond with ONLY valid JSON (no markdown, no explanation):
 
 {{
-  "overview": "Brief description of the implementation approach",
+  "overview": "2-3 sentence description of the implementation approach",
   "steps": [
     {{
       "number": 1,
-      "title": "Step title",
-      "description": "Detailed description of what to do",
-      "complexity": "simple",
-      "estimated_time": "30 min",
+      "title": "Short step title",
+      "description": "Detailed description of what to do and why",
+      "complexity": "simple|medium|complex",
       "dependencies": [],
-      "files_affected": ["path/to/file.py"]
+      "files_affected": ["actual/path/to/file.py"]
     }}
   ],
-  "total_complexity": "medium",
-  "total_estimated_time": "4 hours",
-  "risks": ["Risk description 1", "Risk description 2"]
+  "total_complexity": "simple|medium|complex",
+  "risks": ["Potential risk or challenge"]
 }}
 
-Do not include any text outside the JSON structure."""
+Do NOT include:
+- Markdown code blocks
+- Explanatory text before or after the JSON
+- Generic paths like "src/models/" - use actual paths
+- Time estimates (not used in this project)
+'''
 
     def _generate_heuristic_plan(self) -> ImplementationPlan:
         """Generate basic plan using heuristics (fallback).
@@ -548,3 +620,372 @@ Do not include any text outside the JSON structure."""
         summary += f"✅ Ready for execution! Use `/exec {self.plan.ticket_slug}`"
 
         return summary
+
+    # =========================================================================
+    # Context Gathering Methods (for intelligent planning)
+    # =========================================================================
+
+    def _load_project_context(self) -> str:
+        """Load project context from CDD.md or CLAUDE.md.
+
+        Returns:
+            Project context content or empty string if not found
+        """
+        # Try CDD.md first (preferred), then CLAUDE.md (fallback)
+        for filename in ["CDD.md", "CLAUDE.md"]:
+            path = Path.cwd() / filename
+            if path.exists():
+                logger.info(f"Loading project context from {filename}")
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    # Truncate if too long (keep most important parts)
+                    if len(content) > 8000:
+                        logger.warning(f"{filename} is long ({len(content)} chars), truncating")
+                        content = content[:8000] + "\n\n[... truncated ...]"
+                    return content
+                except Exception as e:
+                    logger.error(f"Failed to read {filename}: {e}")
+                    return ""
+
+        logger.warning("No CDD.md or CLAUDE.md found in project root")
+        return ""
+
+    def _scan_codebase_structure(self) -> str:
+        """Scan codebase structure using tree command.
+
+        Returns:
+            Tree output showing file structure
+        """
+        try:
+            # Use tree command with reasonable depth and exclusions
+            result = subprocess.run(
+                [
+                    "tree",
+                    "-L", "4",  # 4 levels deep
+                    "-I", "__pycache__|node_modules|.git|.venv|venv|*.pyc|.pytest_cache|.mypy_cache|dist|build|*.egg-info",
+                    "--noreport",  # Don't show file count
+                    str(Path.cwd())
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if result.returncode == 0:
+                tree_output = result.stdout
+                logger.info(f"Scanned codebase: {len(tree_output)} chars")
+
+                # Truncate if too long
+                if len(tree_output) > 4000:
+                    lines = tree_output.split("\n")[:150]
+                    tree_output = "\n".join(lines) + "\n[... truncated ...]"
+
+                return tree_output
+            else:
+                logger.warning(f"tree command failed: {result.stderr}")
+                return self._fallback_scan_structure()
+
+        except FileNotFoundError:
+            logger.warning("tree command not found, using fallback")
+            return self._fallback_scan_structure()
+        except subprocess.TimeoutExpired:
+            logger.warning("tree command timed out")
+            return self._fallback_scan_structure()
+        except Exception as e:
+            logger.error(f"Error scanning codebase: {e}")
+            return self._fallback_scan_structure()
+
+    def _fallback_scan_structure(self) -> str:
+        """Fallback codebase scan using Python when tree is unavailable.
+
+        Returns:
+            Simple directory listing
+        """
+        output_lines = []
+        root = Path.cwd()
+
+        exclude_dirs = {
+            "__pycache__", "node_modules", ".git", ".venv", "venv",
+            ".pytest_cache", ".mypy_cache", "dist", "build"
+        }
+
+        def scan_dir(path: Path, prefix: str = "", depth: int = 0):
+            if depth > 3:  # Max 4 levels
+                return
+
+            try:
+                items = sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name))
+                for i, item in enumerate(items):
+                    if item.name.startswith(".") and item.name not in [".cdd"]:
+                        continue
+                    if item.name in exclude_dirs:
+                        continue
+                    if item.suffix == ".pyc":
+                        continue
+
+                    is_last = i == len(items) - 1
+                    connector = "└── " if is_last else "├── "
+                    output_lines.append(f"{prefix}{connector}{item.name}")
+
+                    if item.is_dir():
+                        extension = "    " if is_last else "│   "
+                        scan_dir(item, prefix + extension, depth + 1)
+            except PermissionError:
+                pass
+
+        output_lines.append(str(root.name))
+        scan_dir(root)
+
+        result = "\n".join(output_lines[:150])  # Limit lines
+        logger.info(f"Fallback scan: {len(result)} chars")
+        return result
+
+    def _find_relevant_files(self) -> dict[str, str]:
+        """Find files likely relevant to the spec based on keywords.
+
+        Returns:
+            Dict of file_path -> brief content description
+        """
+        relevant = {}
+
+        if not self.spec:
+            return relevant
+
+        # Extract keywords from spec
+        keywords = set()
+        text_to_search = f"{self.spec.title} {self.spec.description}"
+
+        # Common feature-related words to look for
+        for word in text_to_search.lower().split():
+            if len(word) > 3 and word.isalpha():
+                keywords.add(word)
+
+        # Also add specific tech terms
+        tech_terms = ["cli", "command", "session", "chat", "agent", "tool", "config"]
+        for term in tech_terms:
+            if term in text_to_search.lower():
+                keywords.add(term)
+
+        logger.debug(f"Searching for files with keywords: {keywords}")
+
+        # Search in src directory
+        src_dir = Path.cwd() / "src"
+        if not src_dir.exists():
+            src_dir = Path.cwd()
+
+        try:
+            for py_file in src_dir.rglob("*.py"):
+                if "__pycache__" in str(py_file):
+                    continue
+
+                # Check if filename matches any keyword
+                filename_lower = py_file.stem.lower()
+                if any(kw in filename_lower for kw in keywords):
+                    rel_path = py_file.relative_to(Path.cwd())
+                    relevant[str(rel_path)] = f"Filename matches keywords"
+                    continue
+
+                # Quick scan of file content (first 50 lines)
+                try:
+                    with open(py_file, "r", encoding="utf-8") as f:
+                        head = "".join(f.readline() for _ in range(50))
+
+                    # Check for keyword matches in docstrings/comments
+                    head_lower = head.lower()
+                    matching_kw = [kw for kw in keywords if kw in head_lower]
+                    if len(matching_kw) >= 2:  # At least 2 keyword matches
+                        rel_path = py_file.relative_to(Path.cwd())
+                        relevant[str(rel_path)] = f"Contains: {', '.join(matching_kw[:3])}"
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Error finding relevant files: {e}")
+
+        # Limit to most relevant files
+        if len(relevant) > 10:
+            relevant = dict(list(relevant.items())[:10])
+
+        logger.info(f"Found {len(relevant)} potentially relevant files")
+        return relevant
+
+    def _format_relevant_files(self) -> str:
+        """Format relevant files for inclusion in prompt.
+
+        Returns:
+            Formatted string of relevant files
+        """
+        if not self.relevant_files:
+            return "No specific files identified - refer to codebase structure above."
+
+        lines = []
+        for path, reason in self.relevant_files.items():
+            lines.append(f"- `{path}` - {reason}")
+
+        return "\n".join(lines)
+
+    def _build_planning_request(self) -> str:
+        """Build the user message containing the spec details.
+
+        Returns:
+            User message with spec information
+        """
+        ac_text = "\n".join(f"- {ac}" for ac in self.spec.acceptance_criteria)
+
+        return f'''Please create an implementation plan for this feature:
+
+## SPECIFICATION
+
+**Title:** {self.spec.title}
+**Type:** {self.spec.type}
+
+**Description:**
+{self.spec.description}
+
+**Acceptance Criteria:**
+{ac_text if ac_text else "None specified"}
+
+**Technical Notes:**
+{self.spec.technical_notes or "None provided"}
+
+## YOUR TASK
+
+Create a step-by-step implementation plan that:
+1. Identifies the specific files that need to be created or modified
+2. Describes what changes to make in each file
+3. Orders steps logically with dependencies
+4. Is realistic and actionable
+
+Remember:
+- Use ACTUAL file paths from the codebase structure
+- Follow the project's existing patterns
+- Output ONLY valid JSON'''
+
+    def _parse_plan_response(self, response_text: str, ticket_slug: str) -> ImplementationPlan:
+        """Parse LLM response into ImplementationPlan.
+
+        Handles JSON extraction from potentially messy LLM output.
+
+        Args:
+            response_text: Raw LLM response
+            ticket_slug: Ticket identifier
+
+        Returns:
+            Parsed ImplementationPlan
+
+        Raises:
+            json.JSONDecodeError: If JSON parsing fails
+        """
+        import re
+
+        # Clean up response - remove markdown code blocks if present
+        clean_text = response_text.strip()
+
+        # Try to extract JSON from code blocks
+        if "```" in clean_text:
+            # Extract content between code blocks
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL)
+            if json_match:
+                clean_text = json_match.group(1)
+            else:
+                # Just strip the backticks
+                clean_text = re.sub(r"```(?:json)?", "", clean_text).strip()
+
+        # Parse JSON
+        try:
+            data = json.loads(clean_text)
+        except json.JSONDecodeError:
+            # Try to find JSON object in the text
+            start = clean_text.find("{")
+            end = clean_text.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(clean_text[start:end])
+            else:
+                raise
+
+        # Build steps
+        steps = []
+        for step_data in data.get("steps", []):
+            steps.append(
+                PlanStep(
+                    number=step_data.get("number", len(steps) + 1),
+                    title=step_data.get("title", "Untitled step"),
+                    description=step_data.get("description", ""),
+                    complexity=step_data.get("complexity", "medium"),
+                    estimated_time=step_data.get("estimated_time", ""),
+                    dependencies=step_data.get("dependencies", []),
+                    files_affected=step_data.get("files_affected", []),
+                )
+            )
+
+        return ImplementationPlan(
+            ticket_slug=ticket_slug,
+            ticket_title=self.spec.title,
+            ticket_type=self.spec.type,
+            overview=data.get("overview", ""),
+            steps=steps,
+            total_complexity=data.get("total_complexity", "medium"),
+            total_estimated_time=data.get("total_estimated_time", ""),
+            risks=data.get("risks", []),
+        )
+
+    def _validate_plan(self, plan: ImplementationPlan) -> list[str]:
+        """Validate generated plan against codebase.
+
+        Checks that file paths are reasonable and flags potential issues.
+
+        Args:
+            plan: Generated plan to validate
+
+        Returns:
+            List of warning messages (empty if valid)
+        """
+        warnings = []
+
+        # Collect all file paths from steps
+        all_paths = []
+        for step in plan.steps:
+            all_paths.extend(step.files_affected)
+
+        # Check for generic/suspicious paths
+        generic_patterns = [
+            "src/models/",
+            "src/api/",
+            "src/ui/",
+            "src/services/",
+            "src/components/",
+        ]
+
+        for path in all_paths:
+            # Check for generic paths
+            for pattern in generic_patterns:
+                if path == pattern or path.endswith("/"):
+                    warnings.append(f"Generic path detected: '{path}' - may not exist")
+                    break
+
+            # Check if path exists (for existing files)
+            if not path.endswith("/"):
+                full_path = Path.cwd() / path
+                # Only warn about existing files that don't exist
+                # (new files are expected to not exist)
+                if "create" not in path.lower() and "new" not in path.lower():
+                    if not full_path.exists() and not any(
+                        p in path for p in ["test_", "_test", "tests/"]
+                    ):
+                        # Check if parent directory exists
+                        if not full_path.parent.exists():
+                            warnings.append(
+                                f"Path may not exist: '{path}' - parent directory not found"
+                            )
+
+        # Check for empty steps
+        if not plan.steps:
+            warnings.append("Plan has no steps!")
+
+        # Check for very short plans on complex specs
+        if len(plan.steps) < 2 and len(self.spec.acceptance_criteria) > 3:
+            warnings.append(
+                "Plan seems too simple for the spec complexity - review carefully"
+            )
+
+        return warnings
