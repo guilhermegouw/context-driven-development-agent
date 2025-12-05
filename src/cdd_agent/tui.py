@@ -31,6 +31,38 @@ TOOL_COLOR = "magenta"
 ERROR_COLOR = "red"
 DIM_COLOR = "dim"
 
+# Fun status messages for visual feedback during processing
+THINKING_MESSAGES = [
+    "Thinking",
+    "Pondering the possibilities",
+    "Consulting ancient wisdom",
+    "Brewing ideas",
+    "Connecting the dots",
+    "Caramelizing thoughts",
+    "Untangling the logic",
+    "Reticulating splines",
+    "Synthesizing solutions",
+    "Warming up neurons",
+    "Aligning the stars",
+    "Shuffling the deck",
+    "Polishing the crystal ball",
+    "Consulting the oracle",
+    "Crunching the numbers",
+    "Gathering inspiration",
+    "Weaving the narrative",
+    "Simmering the ideas",
+]
+
+TOOL_MESSAGES = [
+    "Working on it",
+    "Doing the heavy lifting",
+    "Making magic happen",
+    "Executing with precision",
+    "Turning gears",
+    "Processing",
+    "Running the operation",
+]
+
 ASCII_LOGO = """██████╗██████╗ ██████╗
 ██╔════╝██╔══██╗██╔══██╗
 ██║     ██║  ██║██║  ██║
@@ -1455,11 +1487,17 @@ class CDDAgentTUI(App):
         streaming_message = None  # Track the live message widget
 
         def animate_status():
-            """Animate thinking dots in status widget."""
+            """Animate thinking with rotating fun messages."""
+            import random
             import time
 
             nonlocal stop_animation
             dots = 0
+            message_index = 0
+            # Shuffle messages for variety
+            messages = THINKING_MESSAGES.copy()
+            random.shuffle(messages)
+
             while not stop_animation:
                 # CRITICAL: Stop animation if approval is pending
                 if self._approval_pending:
@@ -1468,11 +1506,20 @@ class CDDAgentTUI(App):
 
                 dots = (dots % 3) + 1
                 dot_str = "." * dots
-                # Update the first line with animated dots
+
+                # Get current fun message
+                current_message = messages[message_index % len(messages)]
+
+                # Update the first line with animated message
                 if status_widget.events:
-                    status_widget.events[0] = f"💭 Thinking{dot_str}"
+                    status_widget.events[0] = f"💭 {current_message}{dot_str}"
                     self.call_from_thread(status_widget.update_display)
-                time.sleep(1.0)  # Slower animation (1 second per dot)
+
+                # Change message every 3 dots (full cycle)
+                if dots == 3:
+                    message_index += 1
+
+                time.sleep(1.0)  # 1 second per dot
 
         try:
             for event in self.agent.stream(message, system_prompt=self.system_prompt):
@@ -1494,19 +1541,22 @@ class CDDAgentTUI(App):
                         animation_active = True
 
                 elif event_type == "tool_use":
+                    import random
                     tool_name = event.get("name", "unknown")
-                    
+
                     # Check if this is a background tool
                     if tool_name in ["run_bash_background"]:
                         tool_args = event.get("input", {})
                         command = tool_args.get("command", "unknown")
                         self.call_from_thread(
-                            status_widget.add_event, 
-                            f"🚀 Starting background tool: {tool_name}"
+                            status_widget.add_event,
+                            f"🚀 Starting background: {tool_name}"
                         )
                     else:
+                        # Pick a random fun action verb
+                        action = random.choice(TOOL_MESSAGES)
                         self.call_from_thread(
-                            status_widget.add_event, f"🔧 Using tool: {tool_name}"
+                            status_widget.add_event, f"🔧 {action}: {tool_name}"
                         )
 
                 elif event_type == "tool_result":
