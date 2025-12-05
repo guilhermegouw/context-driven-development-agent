@@ -1,0 +1,42 @@
+{
+  "ticket_slug": "feature-yolo-mode",
+  "current_step": 4,
+  "step_executions": {
+    "1": {
+      "step_number": 1,
+      "status": "completed",
+      "started_at": "2025-12-05T10:49:07.255725",
+      "completed_at": "2025-12-05T10:49:38.379998",
+      "error": null,
+      "files_created": [],
+      "files_modified": [
+        "src/cdd_agent/utils/execution_state.py"
+      ]
+    },
+    "2": {
+      "step_number": 2,
+      "status": "completed",
+      "started_at": "2025-12-05T10:49:46.252730",
+      "completed_at": "2025-12-05T10:51:48.801228",
+      "error": null,
+      "files_created": [],
+      "files_modified": [
+        "src/cdd_agent/tui.py"
+      ]
+    },
+    "3": {
+      "step_number": 3,
+      "status": "completed",
+      "started_at": "2025-12-05T11:10:28.063594",
+      "completed_at": "2025-12-05T11:11:23.961439",
+      "error": null,
+      "files_created": [],
+      "files_modified": [
+        "src/cdd_agent/tui.py"
+      ]
+    }
+  },
+  "started_at": "2025-12-05T10:48:59.389341",
+  "completed_at": null,
+  "status": "in_progress"
+}

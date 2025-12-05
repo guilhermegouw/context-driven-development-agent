@@ -760,6 +760,10 @@ class CDDAgentTUI(App):
         Returns:
             True if approved, False if denied
         """
+        # YOLO mode: auto-approve all tool executions without prompting
+        if self.execution_mode.is_yolo():
+            return True
+
         # Check for dangerous patterns if it's a bash command
         warning = None
         if tool_name == "run_bash" and "command" in args:
@@ -875,13 +879,15 @@ class CDDAgentTUI(App):
             # Mode indicator bar (replaces hints)
             from .utils.execution_state import ExecutionMode
 
+            mode_icon = self.execution_mode.get_icon()
             if self.execution_mode == ExecutionMode.PLAN:
-                mode_icon = self.execution_mode.get_icon()
-                mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Press Shift+Tab to switch to Normal Mode"
-                mode_style = "#d4a574"  # Purple/gold for Plan Mode
+                mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Shift+Tab to cycle modes"
+                mode_style = "#d4a574"  # Gold for Plan Mode
+            elif self.execution_mode == ExecutionMode.YOLO:
+                mode_text = f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
+                mode_style = "bold #ff6b6b"  # Red for YOLO Mode
             else:
-                mode_icon = self.execution_mode.get_icon()
-                mode_text = f"{mode_icon} NORMAL MODE - Press Shift+Tab to switch to Plan Mode"
+                mode_text = f"{mode_icon} NORMAL MODE - Shift+Tab to cycle modes"
                 mode_style = "dim"  # Dim for Normal Mode
 
             yield Static(
@@ -1583,15 +1589,12 @@ class CDDAgentTUI(App):
         self.handle_command("/new")
 
     def action_toggle_execution_mode(self) -> None:
-        """Toggle execution mode between NORMAL and PLAN (Ctrl+M)."""
+        """Cycle execution mode: NORMAL → PLAN → YOLO → NORMAL (Shift+Tab)."""
         from .utils.execution_state import ExecutionMode
         from rich.text import Text
 
-        # Toggle mode
-        if self.execution_mode == ExecutionMode.NORMAL:
-            self.execution_mode = ExecutionMode.PLAN
-        else:
-            self.execution_mode = ExecutionMode.NORMAL
+        # Cycle to next mode
+        self.execution_mode = self.execution_mode.get_next_mode()
 
         # Update agent's mode
         self.agent.set_execution_mode(self.execution_mode)
@@ -1601,10 +1604,13 @@ class CDDAgentTUI(App):
         mode_icon = self.execution_mode.get_icon()
 
         if self.execution_mode == ExecutionMode.PLAN:
-            mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Press Shift+Tab to switch to Normal Mode"
+            mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Shift+Tab to cycle modes"
             mode_indicator.update(Text.from_markup(f"[#d4a574]{mode_text}[/#d4a574]"))
+        elif self.execution_mode == ExecutionMode.YOLO:
+            mode_text = f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
+            mode_indicator.update(Text.from_markup(f"[bold #ff6b6b]{mode_text}[/bold #ff6b6b]"))
         else:
-            mode_text = f"{mode_icon} NORMAL MODE - Press Shift+Tab to switch to Plan Mode"
+            mode_text = f"{mode_icon} NORMAL MODE - Shift+Tab to cycle modes"
             mode_indicator.update(Text.from_markup(f"[dim]{mode_text}[/dim]"))
 
         # Show brief confirmation in status widget
@@ -1612,7 +1618,7 @@ class CDDAgentTUI(App):
         mode_name = self.execution_mode.get_display_name()
 
         status_widget.add_event(
-            f"[#d4a574]✓ Switched to {mode_name} Mode[/#d4a574]"
+            f"[#d4a574]✓ Switched to {mode_name}[/#d4a574]"
         )
 
     def action_show_background_processes(self) -> None:

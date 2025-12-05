@@ -1,0 +1,21 @@
+title: "YOLO Mode"
+type: feature
+description: |
+  Add "YOLO mode" as a third execution mode alongside NORMAL and PLAN modes. YOLO mode allows the CDD Agent to run autonomously by skipping all confirmation prompts. Users toggle between modes using Shift+Tab, cycling through: NORMAL → PLAN → YOLO → NORMAL.
+acceptance_criteria:
+  - YOLO mode is added to the ExecutionMode enum in execution_state.py alongside NORMAL and PLAN.
+  - Pressing Shift+Tab cycles through all three modes: NORMAL → PLAN → YOLO → NORMAL.
+  - When YOLO mode is active, all tool executions are auto-approved and all confirmation prompts are skipped.
+  - The TUI mode indicator bar shows "YOLO MODE" with a distinctive icon (e.g., 🚀) when active.
+  - If a task step fails, the agent must stop and report the error to the user, even in YOLO mode.
+  - Mode changes take effect for the next action, not the currently running one.
+implementation_scope:
+  backend:
+    - Add YOLO value to ExecutionMode enum in src/cdd_agent/utils/execution_state.py.
+    - Add helper methods to ExecutionMode: is_yolo(), get_next_mode() for cycling.
+    - Update action_toggle_execution_mode() in tui.py to cycle through 3 modes.
+    - Update approval.py to check for YOLO mode and auto-approve when active.
+    - Update mode indicator display in tui.py for YOLO mode.
+technical_notes: |
+  YOLO mode integrates with the existing ExecutionMode enum. The cycling logic replaces the current binary toggle. YOLO mode only affects the approval step - error handling remains unchanged. The agent.execution_mode property already exists and is used by the approval system.
+priority: ""

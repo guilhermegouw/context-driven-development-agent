@@ -17,12 +17,14 @@ class ExecutionMode(Enum):
     """Execution modes for the agent.
 
     Modes:
-        NORMAL: Full tool access (default behavior)
+        NORMAL: Full tool access with approval prompts (default behavior)
         PLAN: Read-only mode for exploration and planning without modifications
+        YOLO: Full tool access with auto-approval and no confirmation prompts
     """
 
     NORMAL = "normal"
     PLAN = "plan"
+    YOLO = "yolo"
 
     def is_read_only(self) -> bool:
         """Check if this mode restricts to read-only operations.
@@ -42,6 +44,8 @@ class ExecutionMode(Enum):
             return "Normal"
         elif self == ExecutionMode.PLAN:
             return "Plan"
+        elif self == ExecutionMode.YOLO:
+            return "YOLO MODE"
         return self.value.capitalize()
 
     def get_icon(self) -> str:
@@ -54,6 +58,8 @@ class ExecutionMode(Enum):
             return "▶"  # Play icon for normal execution
         elif self == ExecutionMode.PLAN:
             return "⏸"  # Pause icon for plan mode
+        elif self == ExecutionMode.YOLO:
+            return "🚀"  # Rocket icon for YOLO mode
         return "•"
 
     def get_description(self) -> str:
@@ -66,7 +72,33 @@ class ExecutionMode(Enum):
             return "Full tool access"
         elif self == ExecutionMode.PLAN:
             return "Read-only (exploration and planning)"
+        elif self == ExecutionMode.YOLO:
+            return "Auto-approve all actions"
         return ""
+
+    def is_yolo(self) -> bool:
+        """Check if this mode is YOLO (auto-approve all).
+
+        Returns:
+            True if mode is YOLO, False otherwise
+        """
+        return self == ExecutionMode.YOLO
+
+    def get_next_mode(self) -> "ExecutionMode":
+        """Get the next mode in the cycle.
+
+        Cycles: NORMAL → PLAN → YOLO → NORMAL
+
+        Returns:
+            Next ExecutionMode in the cycle
+        """
+        if self == ExecutionMode.NORMAL:
+            return ExecutionMode.PLAN
+        elif self == ExecutionMode.PLAN:
+            return ExecutionMode.YOLO
+        elif self == ExecutionMode.YOLO:
+            return ExecutionMode.NORMAL
+        return ExecutionMode.NORMAL
 
 
 @dataclass
