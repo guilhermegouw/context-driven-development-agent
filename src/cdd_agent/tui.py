@@ -247,6 +247,7 @@ class StatusWidget(Static):
         """Initialize status widget."""
         super().__init__("", **kwargs)
         self.events = []  # Keep last 3 events
+        self._temp_event_id = 0  # Counter for temporary events
 
     def add_event(self, text: str):
         """Add an event to the status display.
@@ -259,6 +260,29 @@ class StatusWidget(Static):
         if len(self.events) > 3:
             self.events.pop(0)
         self.update_display()
+
+    def add_temporary_event(self, text: str, duration: float = 2.5):
+        """Add an event that auto-dismisses after a duration.
+
+        Args:
+            text: Event text to display
+            duration: Seconds before auto-dismiss (default 2.5)
+        """
+        self._temp_event_id += 1
+        event_id = self._temp_event_id
+
+        self.events.append(text)
+        if len(self.events) > 3:
+            self.events.pop(0)
+        self.update_display()
+
+        # Schedule removal
+        def remove_event():
+            if text in self.events:
+                self.events.remove(text)
+                self.update_display()
+
+        self.set_timer(duration, remove_event)
 
     def update_display(self):
         """Update the displayed content."""
@@ -1610,9 +1634,9 @@ class CDDAgentTUI(App):
             ]
 
             if not selected_messages:
-                # No message selected - show hint
+                # No message selected - show hint (temporary)
                 status_widget = self.query_one("#status-widget", StatusWidget)
-                status_widget.add_event(
+                status_widget.add_temporary_event(
                     "[dim]💡 Click a message to select it, then Ctrl+Y to copy[/dim]"
                 )
                 return
@@ -1624,15 +1648,15 @@ class CDDAgentTUI(App):
             # Copy to clipboard
             self.copy_to_clipboard(combined_content)
 
-            # Show confirmation
+            # Show confirmation (temporary - auto-dismiss after 2.5s)
             status_widget = self.query_one("#status-widget", StatusWidget)
             count = len(selected_messages)
             if count == 1:
-                status_widget.add_event(
+                status_widget.add_temporary_event(
                     "[#d4a574]✓ Copied message to clipboard (without borders)[/#d4a574]"
                 )
             else:
-                status_widget.add_event(
+                status_widget.add_temporary_event(
                     f"[#d4a574]✓ Copied {count} messages to clipboard[/#d4a574]"
                 )
 
@@ -1642,7 +1666,7 @@ class CDDAgentTUI(App):
 
         except Exception as e:
             status_widget = self.query_one("#status-widget", StatusWidget)
-            status_widget.add_event(f"[red]✗ Copy failed: {e}[/red]")
+            status_widget.add_temporary_event(f"[red]✗ Copy failed: {e}[/red]", duration=4.0)
 
     def action_toggle_execution_mode(self) -> None:
         """Cycle execution mode: NORMAL → PLAN → YOLO → NORMAL (Shift+Tab)."""
@@ -1669,11 +1693,11 @@ class CDDAgentTUI(App):
             mode_text = f"{mode_icon} NORMAL MODE - Shift+Tab to cycle modes"
             mode_indicator.update(Text.from_markup(f"[dim]{mode_text}[/dim]"))
 
-        # Show brief confirmation in status widget
+        # Show brief confirmation in status widget (auto-dismiss)
         status_widget = self.query_one("#status-widget", StatusWidget)
         mode_name = self.execution_mode.get_display_name()
 
-        status_widget.add_event(
+        status_widget.add_temporary_event(
             f"[#d4a574]✓ Switched to {mode_name}[/#d4a574]"
         )
 
