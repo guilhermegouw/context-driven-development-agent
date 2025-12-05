@@ -166,113 +166,159 @@ class ExecutorAgent(BaseAgent):
         logger.info("Executing next step")
         return await self._execute_next_step()
 
+    def _is_yolo_mode(self) -> bool:
+        """Check if execution is in YOLO mode (auto-continue).
+
+        Returns:
+            True if in YOLO mode, False otherwise
+        """
+        try:
+            if hasattr(self.session, "general_agent") and self.session.general_agent:
+                return self.session.general_agent.execution_mode.is_yolo()
+        except Exception:
+            pass
+        return False
+
     async def _execute_next_step(self) -> str:
         """Execute the next pending step.
+
+        In YOLO mode, automatically continues to the next step after success.
+        In NORMAL/PLAN mode, pauses and waits for user to type 'continue'.
+        On failure, ALWAYS stops and reports the error (regardless of mode).
 
         Returns:
             Execution result message
         """
-        # Find next step
-        next_step = self._get_next_step()
+        # Collect all step results for YOLO mode
+        all_results = []
 
-        if not next_step:
-            # All done!
-            logger.info("All steps completed!")
-            self.mark_complete()
-            return self._format_completion_message()
+        while True:
+            # Find next step
+            next_step = self._get_next_step()
 
-        # Check dependencies
-        if not self._dependencies_met(next_step):
-            deps = ", ".join(f"Step {d}" for d in next_step.dependencies)
-            logger.warning(
-                f"Cannot execute step {next_step.number}: dependencies not met ({deps})"
+            if not next_step:
+                # All done!
+                logger.info("All steps completed!")
+                self.mark_complete()
+                if all_results:
+                    all_results.append(self._format_completion_message())
+                    return "\n\n---\n\n".join(all_results)
+                return self._format_completion_message()
+
+            # Check dependencies
+            if not self._dependencies_met(next_step):
+                deps = ", ".join(f"Step {d}" for d in next_step.dependencies)
+                logger.warning(
+                    f"Cannot execute step {next_step.number}: dependencies not met ({deps})"
+                )
+                error_msg = (
+                    f"**⚠️  Cannot execute Step {next_step.number}**\n\n"
+                    f"Dependencies not met: {deps}\n\n"
+                    f"Complete those steps first or type 'skip' to skip this step."
+                )
+                if all_results:
+                    all_results.append(error_msg)
+                    return "\n\n---\n\n".join(all_results)
+                return error_msg
+
+            logger.info(f"Executing step {next_step.number}: {next_step.title}")
+
+            # Mark step started
+            self.execution_state.mark_step_started(next_step.number)
+            self.execution_state.save(self.state_path)
+            logger.debug(f"Marked step {next_step.number} as in_progress")
+
+            status_msg = (
+                f"**🔄 Executing Step {next_step.number}:** {next_step.title}\n\n"
+                f"**Description:** {next_step.description}\n\n"
+                f"Generating code...\n\n"
             )
-            return (
-                f"**⚠️  Cannot execute Step {next_step.number}**\n\n"
-                f"Dependencies not met: {deps}\n\n"
-                f"Complete those steps first or type 'skip' to skip this step."
-            )
 
-        logger.info(f"Executing step {next_step.number}: {next_step.title}")
+            try:
+                # Generate code for this step
+                logger.debug(f"Generating code for step {next_step.number} via LLM")
+                code_result = await self._generate_code_for_step(next_step)
 
-        # Mark step started
-        self.execution_state.mark_step_started(next_step.number)
-        self.execution_state.save(self.state_path)
-        logger.debug(f"Marked step {next_step.number} as in_progress")
+                if not code_result["files"]:
+                    # No code generated - possibly a planning/research step
+                    logger.info(f"Step {next_step.number} completed (no code changes)")
+                    self.execution_state.mark_step_completed(next_step.number, [], [])
+                    self.execution_state.current_step = next_step.number + 1
+                    self.execution_state.save(self.state_path)
 
-        status_msg = (
-            f"**🔄 Executing Step {next_step.number}:** {next_step.title}\n\n"
-            f"**Description:** {next_step.description}\n\n"
-            f"Generating code...\n\n"
-        )
+                    step_result = (
+                        f"{status_msg}"
+                        f"✅ **Step {next_step.number} completed** "
+                        f"(planning/research step)\n\n"
+                        f"{code_result.get('explanation', 'No code changes needed')}\n\n"
+                        f"**Progress:** {self._calculate_progress()}"
+                    )
 
-        try:
-            # Generate code for this step
-            logger.debug(f"Generating code for step {next_step.number} via LLM")
-            code_result = await self._generate_code_for_step(next_step)
+                    # YOLO mode: continue to next step
+                    if self._is_yolo_mode():
+                        all_results.append(step_result)
+                        logger.info("YOLO mode: auto-continuing to next step")
+                        continue
+                    else:
+                        return step_result + "\n\nType 'continue' for next step."
 
-            if not code_result["files"]:
-                # No code generated - possibly a planning/research step
-                logger.info(f"Step {next_step.number} completed (no code changes)")
-                self.execution_state.mark_step_completed(next_step.number, [], [])
-                self.execution_state.current_step = next_step.number + 1
-                self.execution_state.save(self.state_path)
-
-                return (
-                    f"{status_msg}"
-                    f"✅ **Step {next_step.number} completed** "
-                    f"(planning/research step)\n\n"
-                    f"{code_result.get('explanation', 'No code changes needed')}\n\n"
-                    f"**Progress:** {self._calculate_progress()}\n\n"
-                    f"Type 'continue' for next step."
+                # Apply code changes
+                logger.debug(f"Applying code changes for step {next_step.number}")
+                files_changed = self._apply_code_changes(code_result)
+                logger.info(
+                    f"Applied code changes: {len(files_changed['created'])} created, "
+                    f"{len(files_changed['modified'])} modified"
                 )
 
-            # Apply code changes
-            logger.debug(f"Applying code changes for step {next_step.number}")
-            files_changed = self._apply_code_changes(code_result)
-            logger.info(
-                f"Applied code changes: {len(files_changed['created'])} created, "
-                f"{len(files_changed['modified'])} modified"
-            )
+                # Mark step completed
+                self.execution_state.mark_step_completed(
+                    next_step.number,
+                    files_changed["created"],
+                    files_changed["modified"],
+                )
+                self.execution_state.current_step = next_step.number + 1
+                self.execution_state.save(self.state_path)
+                logger.debug("Saved execution state")
 
-            # Mark step completed
-            self.execution_state.mark_step_completed(
-                next_step.number,
-                files_changed["created"],
-                files_changed["modified"],
-            )
-            self.execution_state.current_step = next_step.number + 1
-            self.execution_state.save(self.state_path)
-            logger.debug("Saved execution state")
+                logger.info(f"Step {next_step.number} completed successfully")
 
-            logger.info(f"Step {next_step.number} completed successfully")
+                # Format response
+                step_result = (
+                    f"{status_msg}"
+                    f"✅ **Step {next_step.number} completed:** {next_step.title}\n\n"
+                    f"{self._format_file_changes(files_changed)}\n\n"
+                    f"**Progress:** {self._calculate_progress()}"
+                )
 
-            # Format response
-            response = (
-                f"{status_msg}"
-                f"✅ **Step {next_step.number} completed:** {next_step.title}\n\n"
-                f"{self._format_file_changes(files_changed)}\n\n"
-                f"**Progress:** {self._calculate_progress()}\n\n"
-                f"Type 'continue' for next step or 'exit' to finish."
-            )
+                # YOLO mode: auto-continue to next step
+                if self._is_yolo_mode():
+                    all_results.append(step_result)
+                    logger.info("YOLO mode: auto-continuing to next step")
+                    continue
+                else:
+                    return step_result + "\n\nType 'continue' for next step or 'exit' to finish."
 
-            return response
+            except Exception as e:
+                # Mark step failed - ALWAYS stop on failure, even in YOLO mode
+                logger.error(f"Step {next_step.number} failed: {e}", exc_info=True)
+                self.execution_state.mark_step_failed(next_step.number, str(e))
+                self.execution_state.save(self.state_path)
 
-        except Exception as e:
-            # Mark step failed
-            logger.error(f"Step {next_step.number} failed: {e}", exc_info=True)
-            self.execution_state.mark_step_failed(next_step.number, str(e))
-            self.execution_state.save(self.state_path)
+                error_msg = (
+                    f"**❌ Step {next_step.number} failed:** {next_step.title}\n\n"
+                    f"**Error:**\n"
+                    f"```\n{str(e)}\n```\n\n"
+                    f"**Options:**\n"
+                    f"- Type 'retry' to try again\n"
+                    f"- Type 'skip' to skip this step\n"
+                    f"- Type 'exit' to stop execution"
+                )
 
-            return (
-                f"**❌ Step {next_step.number} failed:** {next_step.title}\n\n"
-                f"**Error:**\n"
-                f"```\n{str(e)}\n```\n\n"
-                f"**Options:**\n"
-                f"- Type 'retry' to try again\n"
-                f"- Type 'skip' to skip this step\n"
-                f"- Type 'exit' to stop execution"
-            )
+                # If we had previous successful steps, include them
+                if all_results:
+                    all_results.append(error_msg)
+                    return "\n\n---\n\n".join(all_results)
+                return error_msg
 
     def _get_next_step(self) -> Optional[PlanStep]:
         """Find the next step to execute.
@@ -706,12 +752,18 @@ After the code, briefly explain what you changed.'''
         Returns:
             Start message
         """
+        yolo_hint = ""
+        if self._is_yolo_mode():
+            yolo_hint = "\n🚀 **YOLO MODE ACTIVE** - Steps will execute automatically!\n"
+        else:
+            yolo_hint = "\n💡 *Tip: Switch to YOLO mode (Shift+Tab) for auto-execution*\n"
+
         return f"""**Hello! I'm the Executor.**
 
 **Ticket:** {self.spec.title}
 **Plan:** {len(self.plan.steps)} implementation steps
 **Estimated Time:** {self.plan.total_estimated_time}
-
+{yolo_hint}
 I'll execute the implementation plan step-by-step.
 
 **Available Commands:**
