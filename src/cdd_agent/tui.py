@@ -377,6 +377,13 @@ class CustomTextArea(TextArea):
             app.action_toggle_execution_mode()
             return
 
+        # Ctrl+Y - Copy selected message(s) without borders
+        if event.key == "ctrl+y":
+            event.prevent_default()
+            event.stop()
+            app.action_copy_selected()
+            return
+
         # Background process shortcuts (only when not in approval mode)
         if not (isinstance(app, CDDAgentTUI) and app._approval_pending):
             # Ctrl+B - Show background processes
@@ -685,6 +692,7 @@ class CDDAgentTUI(App):
         ("ctrl+c", "quit", "Quit"),
         ("ctrl+l", "clear", "Clear"),
         ("ctrl+n", "new", "New Chat"),
+        ("ctrl+y", "copy_selected", "Copy"),
         ("f1", "help", "Help"),
         ("enter", "approval_confirm", ""),
         ("1", "approve_allow", ""),
@@ -1587,6 +1595,54 @@ class CDDAgentTUI(App):
     def action_new(self) -> None:
         """New conversation (Ctrl+N)."""
         self.handle_command("/new")
+
+    def action_copy_selected(self) -> None:
+        """Copy selected message content to clipboard (Ctrl+Y).
+
+        Copies only the message content without panel borders.
+        """
+        # Find selected message in chat history
+        try:
+            chat_history = self.query_one("#chat-history", ChatHistory)
+            selected_messages = [
+                widget for widget in chat_history.query(MessageWidget)
+                if widget.is_selected
+            ]
+
+            if not selected_messages:
+                # No message selected - show hint
+                status_widget = self.query_one("#status-widget", StatusWidget)
+                status_widget.add_event(
+                    "[dim]💡 Click a message to select it, then Ctrl+Y to copy[/dim]"
+                )
+                return
+
+            # Copy content of all selected messages (joined by newlines)
+            contents = [msg.content for msg in selected_messages]
+            combined_content = "\n\n---\n\n".join(contents)
+
+            # Copy to clipboard
+            self.copy_to_clipboard(combined_content)
+
+            # Show confirmation
+            status_widget = self.query_one("#status-widget", StatusWidget)
+            count = len(selected_messages)
+            if count == 1:
+                status_widget.add_event(
+                    "[#d4a574]✓ Copied message to clipboard (without borders)[/#d4a574]"
+                )
+            else:
+                status_widget.add_event(
+                    f"[#d4a574]✓ Copied {count} messages to clipboard[/#d4a574]"
+                )
+
+            # Deselect messages after copying
+            for msg in selected_messages:
+                msg.is_selected = False
+
+        except Exception as e:
+            status_widget = self.query_one("#status-widget", StatusWidget)
+            status_widget.add_event(f"[red]✗ Copy failed: {e}[/red]")
 
     def action_toggle_execution_mode(self) -> None:
         """Cycle execution mode: NORMAL → PLAN → YOLO → NORMAL (Shift+Tab)."""
