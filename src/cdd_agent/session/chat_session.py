@@ -186,10 +186,12 @@ class ChatSession:
 
                 # Check if agent completed automatically
                 if self.current_agent.is_done():
-                    # Check if agent has content ready to save (Socrates → Writer handoff)
-                    if (hasattr(self.current_agent, 'ready_to_save') and
-                        self.current_agent.ready_to_save and
-                        hasattr(self.current_agent, 'generated_content')):
+                    # Check if agent has content ready to save (Socrates→Writer handoff)
+                    if (
+                        hasattr(self.current_agent, "ready_to_save")
+                        and self.current_agent.ready_to_save
+                        and hasattr(self.current_agent, "generated_content")
+                    ):
 
                         logger.info("Agent ready to save, invoking Writer agent")
 
@@ -235,3 +237,16 @@ class ChatSession:
                 str(self.current_ticket) if self.current_ticket else None
             ),
         }
+
+    def clear_history(self) -> None:
+        """Clear the conversation history while preserving system context.
+
+        This method clears only the conversation messages between the user and AI,
+        while preserving system context, loaded files, and other session data.
+        """
+        if self.general_agent and hasattr(self.general_agent, "clear_history"):
+            self.general_agent.clear_history()
+            logger.info("Cleared conversation history from general agent")
+
+        # Note: We don't clear specialized agent history here since
+        # agent modes should maintain their own state during execution

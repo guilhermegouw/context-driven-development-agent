@@ -2,10 +2,17 @@
 
 This agent executes implementation plans step-by-step, generating code via LLM
 and running tests to verify implementations.
+
+Key Features:
+- Uses direct LLM call for code generation (no tool loop)
+- Loads project context from CDD.md/CLAUDE.md
+- Reads existing files before modifying them
+- Generates complete file content with proper merging instructions
 """
 
 import logging
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -65,6 +72,10 @@ class ExecutorAgent(BaseAgent):
         self.plan: Optional[ImplementationPlan] = None
         self.execution_state: Optional[ExecutionState] = None
         self.state_path: Optional[Path] = None
+
+        # Project context (loaded once during initialize)
+        self.project_context: str = ""
+        self.codebase_structure: str = ""
 
     def initialize(self) -> str:
         """Load spec, plan, and start or resume execution.
@@ -295,84 +306,203 @@ class ExecutorAgent(BaseAgent):
     async def _generate_code_for_step(self, step: PlanStep) -> dict:
         """Use LLM to generate code for a step.
 
+        Uses direct LLM call (no tool loop) with full project context.
+
         Args:
             step: Step to generate code for
 
         Returns:
             Dict with 'files' and 'explanation'
         """
-        # Build prompt
-        prompt = self._build_code_generation_prompt(step)
+        # Load project context if not already loaded
+        if not self.project_context:
+            self.project_context = self._load_project_context()
+            self.codebase_structure = self._scan_codebase_structure()
 
-        # Call LLM
+        # Read existing files that will be modified
+        existing_files = self._read_existing_files(step.files_affected)
+
+        # Build prompts
+        system_prompt = self._build_code_generation_system_prompt()
+        user_message = self._build_code_generation_request(step, existing_files)
+
+        # Direct LLM call - no tools
         if hasattr(self.session, "general_agent") and self.session.general_agent:
-            response = self.session.general_agent.run(
-                message="Generate code for this implementation step",
-                system_prompt=prompt,
+            agent = self.session.general_agent
+            model = agent.provider_config.get_model(agent.model_tier)
+
+            logger.info(f"Calling LLM for code generation (model: {model})")
+
+            response = agent.client.messages.create(
+                model=model,
+                max_tokens=8192,  # More tokens for code generation
+                messages=[{"role": "user", "content": user_message}],
+                system=system_prompt,
             )
 
+            # Extract text response
+            response_text = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    response_text += block.text
+                elif isinstance(block, dict) and "text" in block:
+                    response_text += block["text"]
+
+            logger.debug(f"LLM response length: {len(response_text)} chars")
+
             # Parse response
-            return self._parse_code_response(response)
+            return self._parse_code_response(response_text)
         else:
             raise Exception("No LLM available for code generation")
 
-    def _build_code_generation_prompt(self, step: PlanStep) -> str:
-        """Build LLM prompt for code generation.
+    def _load_project_context(self) -> str:
+        """Load project context from CDD.md or CLAUDE.md."""
+        for filename in ["CDD.md", "CLAUDE.md"]:
+            path = Path.cwd() / filename
+            if path.exists():
+                try:
+                    content = path.read_text(encoding="utf-8")
+                    if len(content) > 6000:
+                        content = content[:6000] + "\n\n[... truncated ...]"
+                    logger.info(f"Loaded project context from {filename}")
+                    return content
+                except Exception as e:
+                    logger.error(f"Failed to read {filename}: {e}")
+        return ""
+
+    def _scan_codebase_structure(self) -> str:
+        """Scan codebase structure using tree command."""
+        try:
+            result = subprocess.run(
+                ["tree", "-L", "3", "-I", "__pycache__|.git|.venv|*.pyc",
+                 "--noreport", str(Path.cwd())],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                output = result.stdout
+                if len(output) > 3000:
+                    lines = output.split("\n")[:100]
+                    output = "\n".join(lines) + "\n[... truncated ...]"
+                return output
+        except Exception as e:
+            logger.warning(f"tree command failed: {e}")
+        return ""
+
+    def _read_existing_files(self, file_paths: list[str]) -> dict[str, str]:
+        """Read content of existing files that will be modified.
 
         Args:
-            step: Step to generate code for
+            file_paths: List of file paths from the plan
 
         Returns:
-            System prompt string
+            Dict mapping path -> content for existing files
+        """
+        existing = {}
+        base_path = Path.cwd()
+
+        for file_path in file_paths:
+            full_path = base_path / file_path
+            if full_path.exists():
+                try:
+                    content = full_path.read_text(encoding="utf-8")
+                    # Truncate very large files
+                    if len(content) > 10000:
+                        content = content[:10000] + "\n\n# [... file truncated ...]"
+                    existing[file_path] = content
+                    logger.debug(f"Read existing file: {file_path} ({len(content)} chars)")
+                except Exception as e:
+                    logger.warning(f"Could not read {file_path}: {e}")
+
+        return existing
+
+    def _build_code_generation_system_prompt(self) -> str:
+        """Build system prompt for code generation."""
+        return f'''You are an expert software engineer implementing code changes.
+
+## PROJECT CONTEXT
+
+{self.project_context if self.project_context else "No project context file found."}
+
+## CODEBASE STRUCTURE
+
+```
+{self.codebase_structure if self.codebase_structure else "Structure not available"}
+```
+
+## CRITICAL RULES
+
+1. **For EXISTING files**: Output the COMPLETE file content with your changes integrated
+   - Do NOT output just a snippet or just the new code
+   - Include ALL existing code plus your additions/modifications
+   - Preserve all existing functionality
+
+2. **For NEW files**: Output the complete new file content
+
+3. **Output format**: Use code blocks with file path:
+   ```python:src/path/to/file.py
+   # Complete file content here
+   ```
+
+4. **Follow existing patterns**: Match the code style, imports, and patterns used in the project
+
+5. **Be precise**: Only modify what's needed for this specific step'''
+
+    def _build_code_generation_request(self, step: PlanStep, existing_files: dict[str, str]) -> str:
+        """Build user message for code generation.
+
+        Args:
+            step: Step to implement
+            existing_files: Dict of existing file contents
+
+        Returns:
+            User message string
         """
         criteria_text = "\n".join(f"- {ac}" for ac in self.spec.acceptance_criteria)
         files_text = "\n".join(f"- {f}" for f in step.files_affected)
 
-        return f"""You are an expert software engineer implementing this step.
+        # Include existing file contents
+        existing_section = ""
+        if existing_files:
+            existing_section = "\n## EXISTING FILES TO MODIFY\n\n"
+            existing_section += "**IMPORTANT: These files already exist. Output the COMPLETE file with your changes integrated.**\n\n"
+            for path, content in existing_files.items():
+                existing_section += f"### `{path}` (EXISTING - include ALL content with modifications)\n\n```python\n{content}\n```\n\n"
 
-**Ticket:** {self.spec.title}
-**Type:** {self.spec.type}
+        new_files = [f for f in step.files_affected if f not in existing_files]
+        new_section = ""
+        if new_files:
+            new_section = "\n## NEW FILES TO CREATE\n\n"
+            for path in new_files:
+                new_section += f"- `{path}` (create new file)\n"
 
-**Step {step.number}:** {step.title}
+        return f'''## TASK
+
+Implement Step {step.number}: **{step.title}**
 
 **Description:** {step.description}
 
-**Complexity:** {step.complexity}
+**Files to work on:**
+{files_text}
+{existing_section}{new_section}
+## TICKET CONTEXT
 
-**Files to create/modify:**
-{files_text or "Not specified - determine appropriate files"}
+**Title:** {self.spec.title}
+**Type:** {self.spec.type}
 
-**Acceptance Criteria for the entire ticket:**
+**Acceptance Criteria:**
 {criteria_text}
 
-**Technical Context:**
+**Technical Notes:**
 {self.spec.technical_notes or "None provided"}
 
-**Your task:** Generate the code needed for this step.
+## INSTRUCTIONS
 
-For each file you create or modify, use this format:
+1. Generate the code needed for THIS step only
+2. For existing files: output COMPLETE file content with changes integrated
+3. For new files: output complete new file content
+4. Use the format: ```python:path/to/file.py
 
-```python:path/to/file.py
-# Complete file content here
-# Include all necessary imports
-# Add error handling where appropriate
-# Include docstrings
-```
-
-You can use other languages too (use appropriate extension):
-- ```javascript:path/to/file.js
-- ```typescript:path/to/file.ts
-- ```go:path/to/file.go
-- etc.
-
-**Important:**
-1. Only generate code for THIS step (not future steps)
-2. Make code production-ready (error handling, validation, etc.)
-3. Follow best practices for the language
-4. Add helpful comments
-5. If this is a planning/research step with no code, explain what was considered
-
-After the code blocks, briefly explain your implementation choices."""
+After the code, briefly explain what you changed.'''
 
     def _parse_code_response(self, response: str) -> dict:
         """Parse LLM response to extract code blocks.

@@ -35,6 +35,7 @@ Available Commands:
 """
 
 from .base import BaseSlashCommand, CommandError
+from .clear_command import ClearCommand
 from .exec_command import ExecCommand
 from .help_command import HelpCommand
 from .init_command import InitCommand
@@ -74,6 +75,12 @@ def setup_commands(router: SlashCommandRouter, session=None) -> None:
         exec_cmd.session = session
     router.register(exec_cmd)
 
+    # Register utility commands (require session)
+    clear_cmd = ClearCommand()
+    if session:
+        clear_cmd.session = session
+    router.register(clear_cmd)
+
     # Register meta commands
     router.register(HelpCommand())
 
@@ -93,4 +100,5 @@ __all__ = [
     "SocratesCommand",
     "PlanCommand",
     "ExecCommand",
+    "ClearCommand",
 ]

@@ -1231,8 +1231,13 @@ class CDDAgentTUI(App):
         chat_history = self.query_one("#chat-history", ChatHistory)
         chat_history.add_message(message, role="user", is_markdown=False)
 
-        # Send to agent (in background)
-        self.send_to_agent(message)
+        # Check if we're in agent mode (Socrates, Planner, Executor)
+        if self.chat_session.is_in_agent_mode():
+            # Route to the specialized agent via ChatSession
+            self.send_to_specialized_agent(message)
+        else:
+            # Send to general agent (in background)
+            self.send_to_agent(message)
 
     def handle_command(self, command: str):
         """Handle slash commands.
@@ -1335,8 +1340,69 @@ class CDDAgentTUI(App):
             )
 
     @work(exclusive=True, thread=True)
+    def send_to_specialized_agent(self, message: str):
+        """Send message to specialized agent (Socrates, Planner, Executor).
+
+        Routes messages through ChatSession to the active specialized agent.
+
+        Args:
+            message: User message
+        """
+        import asyncio
+        import logging
+
+        logger = logging.getLogger("cdd_agent.tui")
+        chat_history = self.query_one("#chat-history", ChatHistory)
+
+        logger.info(f"Routing message to specialized agent: {message}")
+
+        async def process_with_agent():
+            try:
+                result, should_exit = await self.chat_session.process_input(message)
+                return result, None
+            except Exception as e:
+                logger.error(f"Error processing with agent: {e}", exc_info=True)
+                return None, str(e)
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result, error = loop.run_until_complete(process_with_agent())
+            loop.close()
+
+            if error:
+                logger.error(f"Agent processing failed: {error}")
+                self.call_from_thread(
+                    chat_history.add_message,
+                    f"❌ Error: {error}",
+                    role="error",
+                    is_markdown=False,
+                )
+            elif result:
+                logger.info("Agent returned result, displaying")
+                self.call_from_thread(
+                    chat_history.add_message,
+                    result,
+                    role="assistant",
+                    is_markdown=True,
+                )
+
+                # Check if agent mode ended (auto-exit)
+                if not self.chat_session.is_in_agent_mode():
+                    logger.info("Agent mode ended, back to general chat")
+
+        except Exception as e:
+            logger.error(f"Unexpected error in agent worker: {e}", exc_info=True)
+            self.call_from_thread(
+                chat_history.add_message,
+                f"❌ Unexpected error: {str(e)}",
+                role="error",
+                is_markdown=False,
+            )
+
+    @work(exclusive=True, thread=True)
     def send_to_agent(self, message: str):
-        """Send message to agent and stream response.
+        """Send message to general agent and stream response.
 
         Args:
             message: User message
