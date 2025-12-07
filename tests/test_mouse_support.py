@@ -1,8 +1,5 @@
 """Tests for mouse support in MessageWidget."""
 
-import pytest
-from textual.events import Click
-
 from src.cdd_agent.tui import MessageWidget
 
 
@@ -76,13 +73,13 @@ class TestMessageWidgetMouseSupport:
         widget = MessageWidget("Test message", role="user")
 
         # Get initial border style (from compose)
-        initial_content = list(widget.compose())
+        list(widget.compose())
 
         # Click to select
         widget.on_click()
 
         # Get selected border style (from compose)
-        selected_content = list(widget.compose())
+        list(widget.compose())
 
         # Border styles should be different
         # (We can't easily compare Panel objects, but we verified the logic in compose)

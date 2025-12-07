@@ -3,7 +3,8 @@
 This module provides the abstract base class that all slash commands inherit from.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 
 
 class CommandError(Exception):
@@ -25,6 +26,7 @@ class BaseSlashCommand(ABC):
         self.description: str = ""  # Short description
         self.usage: str = ""  # Usage pattern (e.g., "[--force]")
         self.examples: list[str] = []  # Example invocations
+        self.session = None  # Optional session attribute
 
     @abstractmethod
     async def execute(self, args: str) -> str:

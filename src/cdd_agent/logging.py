@@ -12,6 +12,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+
 # Log file configuration
 LOG_DIR = Path("/tmp/cdd-agent")
 LOG_FILE = LOG_DIR / "cdd-agent.log"

@@ -13,10 +13,15 @@ from typing import Dict
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
+from rich.prompt import Prompt
 from rich.table import Table
 
-from .config import ConfigManager, OAuthTokens, ProviderConfig, Settings
+from .config import ConfigManager
+from .config import OAuthTokens
+from .config import ProviderConfig
+from .config import Settings
+
 
 console = Console()
 
@@ -67,7 +72,9 @@ class AuthManager:
             Settings object with Anthropic provider
         """
         console.print("\n[bold]Anthropic Setup[/bold]")
-        console.print("Get your API key from: [link]https://console.anthropic.com/[/link]")
+        console.print(
+            "Get your API key from: [link]https://console.anthropic.com/[/link]"
+        )
 
         api_key = Prompt.ask("Enter your Anthropic API key", password=True)
 
@@ -92,11 +99,14 @@ class AuthManager:
             models = self._prompt_models()
 
         provider_config = ProviderConfig(
-            auth_token=api_key, base_url="https://api.anthropic.com", models=models
+            auth_token=api_key,
+            base_url="https://api.anthropic.com",
+            models=models,
         )
 
         settings = Settings(
-            default_provider="anthropic", providers={"anthropic": provider_config}
+            default_provider="anthropic",
+            providers={"anthropic": provider_config},
         )
 
         self.config.save(settings)
@@ -112,7 +122,9 @@ class AuthManager:
             Settings object with OpenAI provider
         """
         console.print("\n[bold]OpenAI Setup[/bold]")
-        console.print("Get your API key from: [link]https://platform.openai.com/[/link]")
+        console.print(
+            "Get your API key from: [link]https://platform.openai.com/[/link]"
+        )
 
         api_key = Prompt.ask("Enter your OpenAI API key", password=True)
 
@@ -171,9 +183,7 @@ class AuthManager:
 
         models = {
             "small": Prompt.ask("  Small model (fast/cheap)", default="glm-4.5-air"),
-            "mid": Prompt.ask(
-                "  Mid model (balanced)", default="glm-4.6"
-            ),
+            "mid": Prompt.ask("  Mid model (balanced)", default="glm-4.6"),
             "big": Prompt.ask("  Big model (powerful)", default="glm-4.6"),
         }
 
@@ -190,7 +200,8 @@ class AuthManager:
 
         self.config.save(settings)
         console.print(
-            f"[green]✓ Custom provider configured and saved to {self.config.config_file}[/green]"
+            f"[green]✓ Custom provider configured and saved to "
+            f"{self.config.config_file}[/green]"
         )
         return settings
 
@@ -239,7 +250,8 @@ class AuthManager:
         """Show current configuration in a table."""
         if not self.config.exists():
             console.print(
-                "[yellow]No configuration found. Run 'cdd-agent auth setup' first.[/yellow]"
+                "[yellow]No configuration found. "
+                "Run 'cdd-agent auth setup' first.[/yellow]"
             )
             return
 
@@ -256,7 +268,10 @@ class AuthManager:
             has_key = "✓ Configured" if provider.get_api_key() else "✗ Missing Key"
 
             table.add_row(
-                name, provider.base_url, provider.get_model(), f"{is_default} {has_key}"
+                name,
+                provider.base_url,
+                provider.get_model(),
+                f"{is_default} {has_key}",
             )
 
         console.print(table)
@@ -299,7 +314,8 @@ class AuthManager:
         if mode_choice == "max":
             console.print(
                 "[yellow]Mode:[/yellow] OAuth (Claude Pro/Max)\n"
-                "[dim]Uses OAuth tokens that auto-refresh. Best for plan subscribers.[/dim]\n"
+                "[dim]Uses OAuth tokens that auto-refresh. "
+                "Best for plan subscribers.[/dim]\n"
             )
         else:
             console.print(
@@ -341,7 +357,8 @@ class AuthManager:
             if not tokens:
                 console.print(
                     "[red]✗ Failed to exchange authorization code.[/red]\n"
-                    "[dim]Please try again or check that you copied the code correctly.[/dim]"
+                    "[dim]Please try again or check that you copied the code "
+                    "correctly.[/dim]"
                 )
                 return
 
@@ -411,7 +428,8 @@ class AuthManager:
             if not api_key:
                 console.print(
                     "[red]✗ Failed to create API key.[/red]\n"
-                    "[dim]Please try again or check that you copied the code correctly.[/dim]"
+                    "[dim]Please try again or check that you copied the code "
+                    "correctly.[/dim]"
                 )
                 return
 

@@ -1,13 +1,15 @@
 """Integration tests for approval system with Agent."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from cdd_agent.agent import Agent
 from cdd_agent.approval import ApprovalManager
-from cdd_agent.config import ApprovalMode, ProviderConfig
-from cdd_agent.tools import RiskLevel, ToolRegistry
+from cdd_agent.config import ApprovalMode
+from cdd_agent.config import ProviderConfig
+from cdd_agent.tools import RiskLevel
+from cdd_agent.tools import ToolRegistry
 
 
 @pytest.fixture
@@ -229,7 +231,7 @@ class TestRiskLevelClassification:
 
     def test_tool_schema_includes_risk_level(self, tool_registry_with_risks):
         """Tool schema should include risk_level metadata."""
-        schemas = tool_registry_with_risks.get_schemas()
+        schemas = tool_registry_with_risks.get_schemas(include_risk_level=True)
 
         read_file_schema = next(s for s in schemas if s["name"] == "read_file")
         assert read_file_schema["risk_level"] == "safe"
@@ -260,7 +262,9 @@ class TestApprovalUICallback:
         )
 
         # Execute a tool
-        agent._execute_tool("write_file", {"path": "test.txt", "content": "data"}, "tool_1")
+        agent._execute_tool(
+            "write_file", {"path": "test.txt", "content": "data"}, "tool_1"
+        )
 
         # Verify UI callback was called with correct parameters
         mock_ui_callback.assert_called_once_with(
@@ -336,6 +340,8 @@ class TestDangerousCommandIntegration:
         mock_ui_callback.assert_called_once()
 
         # The ApprovalManager should detect it as dangerous
-        is_dangerous, warning = approval_manager.is_dangerous_command("rm -rf /tmp/test")
+        is_dangerous, warning = approval_manager.is_dangerous_command(
+            "rm -rf /tmp/test"
+        )
         assert is_dangerous is True
         assert warning is not None

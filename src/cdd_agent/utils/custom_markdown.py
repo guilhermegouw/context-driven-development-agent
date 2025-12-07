@@ -5,11 +5,13 @@ but overrides the heading alignment to use left-align instead of center,
 and removes underlines from headings.
 """
 
-from rich.console import Console, ConsoleOptions, RenderResult
+from rich.console import Console
+from rich.console import ConsoleOptions
+from rich.console import RenderResult
 from rich.markdown import Heading as RichHeading
 from rich.markdown import Markdown as RichMarkdown
-from rich.text import Text
 from rich.style import Style
+from rich.text import Text
 
 
 class LeftAlignedHeading(RichHeading):
@@ -37,7 +39,11 @@ class LeftAlignedHeading(RichHeading):
             span = text.spans[i]
             if span.style:
                 # Create new style without underline
-                current_style = span.style if isinstance(span.style, Style) else Style.parse(str(span.style))
+                current_style = (
+                    span.style
+                    if isinstance(span.style, Style)
+                    else Style.parse(str(span.style))
+                )
                 new_style = Style(
                     color=current_style.color,
                     bgcolor=current_style.bgcolor,

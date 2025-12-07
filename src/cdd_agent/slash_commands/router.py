@@ -8,7 +8,9 @@ from typing import Optional
 
 from rich.console import Console
 
-from .base import BaseSlashCommand, CommandError
+from .base import BaseSlashCommand
+from .base import CommandError
+
 
 console = Console()
 logger = logging.getLogger(__name__)

@@ -1,4 +1,3 @@
-import pytest
 from src.example import hello_world
 
 

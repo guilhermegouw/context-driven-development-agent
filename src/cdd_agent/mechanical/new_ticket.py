@@ -18,6 +18,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+
 console = Console()
 
 
@@ -188,7 +189,7 @@ def prompt_new_name(item_type: str) -> str | None:
     console.print("\n[yellow]💡 Tip: Type 'cancel' or press Ctrl+C to abort[/yellow]")
 
     try:
-        new_name = click.prompt(
+        new_name: str = click.prompt(
             f"Enter a different name for the {item_type}",
             type=str,
         ).strip()

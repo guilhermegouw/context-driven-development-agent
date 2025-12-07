@@ -5,7 +5,19 @@ agents can access, enforcing architectural boundaries.
 """
 
 import logging
-from typing import Any, Dict, Set
+from typing import Any
+from typing import Dict
+from typing import Protocol
+from typing import Set
+from typing import runtime_checkable
+
+
+@runtime_checkable
+class ToolRegistryProtocol(Protocol):
+    def get_schemas(self, include_risk_level: bool = False) -> list: ...
+    def execute(self, name: str, args: Dict[str, Any]) -> Any: ...
+    def get_risk_level(self, name: str) -> str: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +50,16 @@ class ReadOnlyToolRegistry:
         "git_log",
     }
 
-    def __init__(self, base_registry: Any):
+    def __init__(self, base_registry: ToolRegistryProtocol):
         """Initialize read-only registry wrapper.
 
         Args:
             base_registry: The underlying ToolRegistry to wrap
         """
         self.base_registry = base_registry
-        logger.debug(f"Created ReadOnlyToolRegistry with {len(self.ALLOWED_TOOLS)} allowed tools")
+        logger.debug(
+            f"Created ReadOnlyToolRegistry with {len(self.ALLOWED_TOOLS)} allowed tools"
+        )
 
     def get_schemas(self, include_risk_level: bool = False) -> list:
         """Return only read-only tool schemas.
@@ -54,15 +68,17 @@ class ReadOnlyToolRegistry:
 
         Args:
             include_risk_level: If True, include custom risk_level field.
-                               Set to False when using OAuth (Anthropic rejects custom fields)
+                               # Set to False when using OAuth
+                               # Anthropic rejects custom fields
 
         Returns:
             List of tool schemas for read-only tools
         """
-        all_schemas = self.base_registry.get_schemas(include_risk_level=include_risk_level)
+        all_schemas = self.base_registry.get_schemas(
+            include_risk_level=include_risk_level
+        )
         filtered_schemas = [
-            schema for schema in all_schemas
-            if schema.get("name") in self.ALLOWED_TOOLS
+            schema for schema in all_schemas if schema.get("name") in self.ALLOWED_TOOLS
         ]
 
         logger.debug(

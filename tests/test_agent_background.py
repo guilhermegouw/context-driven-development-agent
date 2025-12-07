@@ -8,13 +8,14 @@ This module tests:
 - Agent maintains process context across conversation turns
 """
 
-import time
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
-from cdd_agent.agent import Agent, BACKGROUND_TOOLS
-from cdd_agent.tools import ToolRegistry
+from cdd_agent.agent import BACKGROUND_TOOLS
+from cdd_agent.agent import Agent
 from cdd_agent.config import ProviderConfig
+from cdd_agent.tools import ToolRegistry
 
 
 class TestAgentBackgroundToolRouting(unittest.TestCase):
@@ -35,7 +36,7 @@ class TestAgentBackgroundToolRouting(unittest.TestCase):
         self.agent = Agent(
             provider_config=self.mock_provider_config,
             tool_registry=self.tool_registry,
-            enable_context=False  # Disable context loading for tests
+            enable_context=False,  # Disable context loading for tests
         )
 
     def test_background_tools_set_defined(self):
@@ -49,9 +50,9 @@ class TestAgentBackgroundToolRouting(unittest.TestCase):
 
     def test_agent_has_background_infrastructure(self):
         """Test that agent has background process tracking."""
-        self.assertTrue(hasattr(self.agent, 'background_processes'))
-        self.assertTrue(hasattr(self.agent, 'background_process_counter'))
-        self.assertTrue(hasattr(self.agent, 'background_executor'))
+        self.assertTrue(hasattr(self.agent, "background_processes"))
+        self.assertTrue(hasattr(self.agent, "background_process_counter"))
+        self.assertTrue(hasattr(self.agent, "background_executor"))
 
         self.assertIsInstance(self.agent.background_processes, dict)
         self.assertEqual(self.agent.background_process_counter, 0)
@@ -62,14 +63,18 @@ class TestAgentBackgroundToolRouting(unittest.TestCase):
         process_id = "f8793d68-fd26-4716-980e-8d389b59abf2"
 
         # Mock the tool execution
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
-            mock_execute.return_value = f"Background process started: {process_id}\nCommand: echo 'test'\nStatus: Running"
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
+            mock_execute.return_value = (
+                f"Background process started: {process_id}\n"
+                "Command: echo 'test'\n"
+                "Status: Running"
+            )
 
             # Execute a background tool
             result = self.agent._execute_tool(
                 "run_bash_background",
                 {"command": "echo 'test'", "timeout": 300},
-                "tool-123"
+                "tool-123",
             )
 
         # Verify result structure
@@ -85,13 +90,11 @@ class TestAgentBackgroundToolRouting(unittest.TestCase):
     def test_execute_tool_routes_regular_tools_normally(self):
         """Test that regular tools still use standard enrichment."""
         # Mock file read
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
             mock_execute.return_value = "file content here"
 
             result = self.agent._execute_tool(
-                "read_file",
-                {"path": "/test/file.txt"},
-                "tool-456"
+                "read_file", {"path": "/test/file.txt"}, "tool-456"
             )
 
         # Verify result structure
@@ -115,14 +118,14 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
         self.agent = Agent(
             provider_config=mock_provider_config,
             tool_registry=ToolRegistry(),
-            enable_context=False
+            enable_context=False,
         )
 
     def test_run_bash_background_announcement(self):
         """Test run_bash_background announcement formatting."""
         announcement = self.agent._format_tool_announcement(
             "run_bash_background",
-            {"command": "pytest tests/ -v", "timeout": 300}
+            {"command": "pytest tests/ -v", "timeout": 300},
         )
 
         self.assertIn("🚀", announcement)
@@ -133,8 +136,7 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
         """Test that long commands are truncated in announcements."""
         long_command = "echo " + "x" * 100
         announcement = self.agent._format_tool_announcement(
-            "run_bash_background",
-            {"command": long_command, "timeout": 300}
+            "run_bash_background", {"command": long_command, "timeout": 300}
         )
 
         self.assertIn("🚀", announcement)
@@ -144,8 +146,7 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
     def test_get_background_status_announcement(self):
         """Test get_background_status announcement formatting."""
         announcement = self.agent._format_tool_announcement(
-            "get_background_status",
-            {"process_id": "abc123-def456-ghi789"}
+            "get_background_status", {"process_id": "abc123-def456-ghi789"}
         )
 
         self.assertIn("📊", announcement)
@@ -155,8 +156,7 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
     def test_interrupt_background_process_announcement(self):
         """Test interrupt_background_process announcement formatting."""
         announcement = self.agent._format_tool_announcement(
-            "interrupt_background_process",
-            {"process_id": "test-process-123"}
+            "interrupt_background_process", {"process_id": "test-process-123"}
         )
 
         self.assertIn("⏹", announcement)
@@ -166,8 +166,7 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
     def test_get_background_output_announcement(self):
         """Test get_background_output announcement formatting."""
         announcement = self.agent._format_tool_announcement(
-            "get_background_output",
-            {"process_id": "proc-123", "lines": 20}
+            "get_background_output", {"process_id": "proc-123", "lines": 20}
         )
 
         self.assertIn("📄", announcement)
@@ -177,8 +176,7 @@ class TestAgentBackgroundToolAnnouncements(unittest.TestCase):
     def test_list_background_processes_announcement(self):
         """Test list_background_processes announcement formatting."""
         announcement = self.agent._format_tool_announcement(
-            "list_background_processes",
-            {}
+            "list_background_processes", {}
         )
 
         self.assertIn("📋", announcement)
@@ -198,7 +196,7 @@ class TestAgentBackgroundProcessTracking(unittest.TestCase):
         self.agent = Agent(
             provider_config=mock_provider_config,
             tool_registry=ToolRegistry(),
-            enable_context=False
+            enable_context=False,
         )
 
     def test_register_background_process(self):
@@ -212,10 +210,10 @@ class TestAgentBackgroundProcessTracking(unittest.TestCase):
         self.assertIn(process_id, self.agent.background_processes)
         process_info = self.agent.background_processes[process_id]
 
-        self.assertEqual(process_info['command'], command)
-        self.assertEqual(process_info['process_id'], process_id)
-        self.assertIn('start_time', process_info)
-        self.assertIn('status', process_info)
+        self.assertEqual(process_info["command"], command)
+        self.assertEqual(process_info["process_id"], process_id)
+        self.assertIn("start_time", process_info)
+        self.assertIn("status", process_info)
 
     def test_get_background_process(self):
         """Test retrieving process information."""
@@ -228,13 +226,13 @@ class TestAgentBackgroundProcessTracking(unittest.TestCase):
         process_info = self.agent._get_background_process(process_id)
 
         self.assertIsNotNone(process_info)
-        self.assertEqual(process_info['process_id'], process_id)
-        self.assertEqual(process_info['command'], command)
+        self.assertEqual(process_info["process_id"], process_id)
+        self.assertEqual(process_info["command"], command)
 
     def test_get_nonexistent_background_process(self):
-        """Test retrieving non-existent process returns None."""
+        """Test retrieving non-existent process returns empty dict."""
         process_info = self.agent._get_background_process("nonexistent-123")
-        self.assertIsNone(process_info)
+        self.assertEqual(process_info, {})
 
     def test_list_background_processes(self):
         """Test listing all background processes."""
@@ -247,7 +245,7 @@ class TestAgentBackgroundProcessTracking(unittest.TestCase):
         processes = self.agent._list_background_processes()
 
         self.assertEqual(len(processes), 3)
-        process_ids = [p['process_id'] for p in processes]
+        process_ids = [p["process_id"] for p in processes]
         self.assertIn("proc-1", process_ids)
         self.assertIn("proc-2", process_ids)
         self.assertIn("proc-3", process_ids)
@@ -258,10 +256,7 @@ class TestAgentBackgroundProcessTracking(unittest.TestCase):
 
         self.agent._register_background_process("proc-1", "echo 'test'")
 
-        self.assertEqual(
-            self.agent.background_process_counter,
-            initial_count + 1
-        )
+        self.assertEqual(self.agent.background_process_counter, initial_count + 1)
 
 
 class TestAgentBackgroundToolResultHandling(unittest.TestCase):
@@ -277,7 +272,7 @@ class TestAgentBackgroundToolResultHandling(unittest.TestCase):
         self.agent = Agent(
             provider_config=mock_provider_config,
             tool_registry=ToolRegistry(),
-            enable_context=False
+            enable_context=False,
         )
 
     def test_handle_background_tool_result_extracts_process_id(self):
@@ -293,7 +288,7 @@ Use get_background_status() to check progress"""
             "run_bash_background",
             {"command": "pytest tests/ -v"},
             result,
-            "tool-123"
+            "tool-123",
         )
 
         # Verify process was registered
@@ -318,7 +313,7 @@ Command: echo 'test'"""
             "get_background_status",
             {"process_id": "proc-123"},
             result,
-            "tool-456"
+            "tool-456",
         )
 
         self.assertIn("proc-123", enriched)
@@ -332,7 +327,7 @@ Command: echo 'test'"""
             "get_background_status",
             {"process_id": "nonexistent-123"},
             result,
-            "tool-789"
+            "tool-789",
         )
 
         # Should still return the error message
@@ -353,10 +348,10 @@ class TestAgentBackgroundIntegration(unittest.TestCase):
         self.agent = Agent(
             provider_config=mock_provider_config,
             tool_registry=ToolRegistry(),
-            enable_context=False
+            enable_context=False,
         )
 
-    @patch('cdd_agent.tools.get_background_executor')
+    @patch("cdd_agent.tools.get_background_executor")
     def test_full_background_workflow(self, mock_get_executor):
         """Test complete workflow: start -> check -> get output -> interrupt."""
         # Mock background executor
@@ -374,13 +369,15 @@ class TestAgentBackgroundIntegration(unittest.TestCase):
         mock_get_executor.return_value = mock_executor
 
         # 1. Start background process
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
-            mock_execute.return_value = f"Background process started: {mock_process.process_id}\nCommand: echo 'test'\nStatus: Running"
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
+            mock_execute.return_value = (
+                f"Background process started: {mock_process.process_id}\n"
+                "Command: echo 'test'\n"
+                "Status: Running"
+            )
 
-            result1 = self.agent._execute_tool(
-                "run_bash_background",
-                {"command": "echo 'test'"},
-                "tool-1"
+            self.agent._execute_tool(
+                "run_bash_background", {"command": "echo 'test'"}, "tool-1"
             )
 
         # Verify process was registered
@@ -388,41 +385,45 @@ class TestAgentBackgroundIntegration(unittest.TestCase):
         self.assertIn(mock_process.process_id, self.agent.background_processes)
 
         # 2. Check status
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
-            mock_execute.return_value = f"Process ID: {mock_process.process_id}\nStatus: running\nRuntime: 5.0s"
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
+            mock_execute.return_value = (
+                f"Process ID: {mock_process.process_id}\nStatus: running\nRuntime: 5.0s"
+            )
 
             result2 = self.agent._execute_tool(
                 "get_background_status",
                 {"process_id": mock_process.process_id},
-                "tool-2"
+                "tool-2",
             )
 
         self.assertIn("running", result2["content"].lower())
 
         # 3. Get output
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
             mock_execute.return_value = "line 1\nline 2\nline 3"
 
             result3 = self.agent._execute_tool(
                 "get_background_output",
                 {"process_id": mock_process.process_id, "lines": 10},
-                "tool-3"
+                "tool-3",
             )
 
         self.assertIn("line", result3["content"])
 
         # 4. Interrupt
-        with patch.object(self.agent.tool_registry, 'execute') as mock_execute:
-            mock_execute.return_value = f"Process {mock_process.process_id} interrupted successfully"
+        with patch.object(self.agent.tool_registry, "execute") as mock_execute:
+            mock_execute.return_value = (
+                f"Process {mock_process.process_id} interrupted successfully"
+            )
 
             result4 = self.agent._execute_tool(
                 "interrupt_background_process",
                 {"process_id": mock_process.process_id},
-                "tool-4"
+                "tool-4",
             )
 
         self.assertIn("interrupted", result4["content"].lower())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

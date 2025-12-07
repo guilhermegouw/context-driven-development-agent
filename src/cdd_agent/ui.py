@@ -1,6 +1,6 @@
 """Rich terminal UI components for streaming conversations."""
 
-from typing import Generator, Optional
+from typing import Generator
 
 from rich.console import Console
 from rich.live import Live
@@ -11,6 +11,7 @@ from rich.text import Text
 
 from . import __version__
 from .tools import RiskLevel
+
 
 # Gold/yellow color scheme inspired by Droid and Neovim
 BRAND_COLOR = "#d4a574"  # Warm gold/tan color for consistency
@@ -38,7 +39,7 @@ SUBTITLE = "Context-Driven Development"
 class StreamingUI:
     """Rich UI for streaming conversations."""
 
-    def __init__(self, console: Optional[Console] = None):
+    def __init__(self, console: Console | None = None):
         """Initialize streaming UI.
 
         Args:
@@ -160,12 +161,13 @@ class StreamingUI:
             event_stream: Generator yielding event dicts from agent.stream()
         """
         import time
-        from threading import Event, Thread
+        from threading import Event
+        from threading import Thread
 
         accumulated_text = ""
         status_active = False
         stop_animation = Event()
-        status_events = []  # Keep last 3 events
+        status_events: list[str] = []  # Keep last 3 events
         raw_text_lines = 0  # Track how many lines of raw text we printed
 
         def format_status():
@@ -362,12 +364,16 @@ class StreamingUI:
             from catppuccin.extras.pygments import FrappeStyle
 
             # Use Catppuccin only for code syntax highlighting
-            md = Markdown(
-                text,
-                code_theme=FrappeStyle,
-                inline_code_lexer="python",
-                inline_code_theme=FrappeStyle,
-            )
+            # Robustly handle markdown rendering with optional parameters
+            try:
+                md = Markdown(
+                    text,
+                    code_theme="catppuccin-frappe",
+                    inline_code_lexer=getattr(FrappeStyle, "default_lexer", "python"),
+                    inline_code_theme="catppuccin-frappe",
+                )
+            except (TypeError, ValueError):
+                md = Markdown(text)  # Fallback to default if parameters fail
         except ImportError:
             # Fallback to default theme if catppuccin not available
             md = Markdown(text)

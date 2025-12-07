@@ -9,8 +9,13 @@ This module implements the main agentic loop:
 """
 
 import time
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
+from typing import Dict
+from typing import Generator
+from typing import List
+from typing import Optional
 
+from anthropic.types import Message
 from rich.console import Console
 
 from .approval import ApprovalManager
@@ -20,6 +25,7 @@ from .logging import get_logger
 from .tools import ToolRegistry
 from .utils.execution_state import ExecutionMode
 
+
 console = Console()
 logger = get_logger("agent")
 
@@ -27,9 +33,9 @@ logger = get_logger("agent")
 BACKGROUND_TOOLS = {
     "run_bash_background",
     "get_background_status",
-    "interrupt_background_process", 
+    "interrupt_background_process",
     "get_background_output",
-    "list_background_processes"
+    "list_background_processes",
 }
 
 
@@ -182,11 +188,14 @@ class Agent:
         self.system_prompt = PAIR_CODING_SYSTEM_PROMPT
 
         # Background process tracking for agent context awareness
-        self.background_processes: Dict[str, Dict[str, Any]] = {}  # Track active background processes
-        self.background_process_counter = 0 # Counter for unique process IDs
-        
+        self.background_processes: Dict[
+            str, Dict[str, Any]
+        ] = {}  # Track active background processes
+        self.background_process_counter = 0  # Counter for unique process IDs
+
         # Create background executor reference for easy access
         from .background_executor import get_background_executor
+
         self.background_executor = get_background_executor
 
     @property
@@ -243,9 +252,14 @@ class Agent:
                             config_manager = ConfigManager()
                             settings = config_manager.load()
                             # Find and update the provider with OAuth
-                            for provider_name, provider_cfg in settings.providers.items():
+                            for (
+                                provider_name,
+                                provider_cfg,
+                            ) in settings.providers.items():
                                 if provider_cfg.oauth == oauth_config:
-                                    settings.providers[provider_name].oauth = oauth_config
+                                    settings.providers[
+                                        provider_name
+                                    ].oauth = oauth_config
                                     break
                             config_manager.save(settings)
                             logger.debug("Updated OAuth tokens saved to config")
@@ -264,13 +278,17 @@ class Agent:
                             super().__init__(*args, **kwargs)
                             self.access_token = access_token
 
-                        def handle_request(self, request: httpx.Request) -> httpx.Response:
+                        def handle_request(
+                            self, request: httpx.Request
+                        ) -> httpx.Response:
                             # Remove x-api-key header if present
                             if "x-api-key" in request.headers:
                                 del request.headers["x-api-key"]
 
                             # Add OAuth Bearer token
-                            request.headers["Authorization"] = f"Bearer {self.access_token}"
+                            request.headers["Authorization"] = (
+                                f"Bearer {self.access_token}"
+                            )
 
                             # Add required OAuth beta header
                             request.headers["anthropic-beta"] = (
@@ -286,8 +304,9 @@ class Agent:
                         timeout=600.0,
                     )
 
+                    # Will be removed by transport
                     self._client = anthropic.Anthropic(
-                        api_key="dummy-key-will-be-replaced",  # Will be removed by transport
+                        api_key="dummy-key-will-be-replaced",
                         base_url=self._provider_config.base_url,
                         max_retries=5,
                         timeout=600.0,
@@ -299,11 +318,13 @@ class Agent:
                 else:
                     # Fallback to API key authentication
                     logger.debug("Using API key authentication")
+                    # Increase from default 2 to handle overloaded errors
+                    # 10 minutes timeout for long-running requests
                     self._client = anthropic.Anthropic(
                         api_key=self._provider_config.get_api_key(),
                         base_url=self._provider_config.base_url,
-                        max_retries=5,  # Increase from default 2 to handle overloaded errors
-                        timeout=600.0,  # 10 minutes timeout for long-running requests
+                        max_retries=5,
+                        timeout=600.0,
                     )
                     logger.info("Anthropic client initialized successfully")
             except ImportError as e:
@@ -387,15 +408,16 @@ class Agent:
 
             # Log API request details for debugging
             logger.debug(
-                f"API request: model={model}, "
-                f"messages_count={len(self.messages)}, "
-                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}, "
+                f"API request: model={model} "
+                f"messages_count={len(self.messages)} "
+                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}"
                 f"execution_mode={self.execution_mode.value}"
             )
 
             # Call LLM with tools
             try:
-                # When using OAuth, exclude risk_level field (Anthropic OAuth API rejects custom fields)
+                # When using OAuth, exclude risk_level field (Anthropic
+                # OAuth API rejects custom fields)
                 include_risk = not bool(self._provider_config.oauth)
 
                 response = self.client.messages.create(
@@ -449,13 +471,14 @@ class Agent:
             elif response.stop_reason is None:
                 # Some providers (like MiniMax M2) return None as stop_reason
                 # This is valid - treat it as end_turn
-                logger.debug(f"Stop reason is None, treating as end_turn")
+                logger.debug("Stop reason is None, treating as end_turn")
                 return self._extract_text(response)
 
             else:
                 # Log unexpected stop reasons but don't show warning to user
                 logger.warning(
-                    f"Unexpected stop reason: {response.stop_reason}, treating as end_turn"
+                    f"Unexpected stop reason: {response.stop_reason}, "
+                    "treating as end_turn"
                 )
                 return self._extract_text(response)
 
@@ -494,7 +517,8 @@ class Agent:
                     }
             except Exception as e:
                 logger.error(
-                    f"Approval check failed for tool '{name}': {e}", exc_info=True
+                    f"Approval check failed for tool '{name}': {e}",
+                    exc_info=True,
                 )
                 console.print(f"[red]  ✗ Approval error: {e}[/red]")
                 return {
@@ -525,15 +549,17 @@ class Agent:
 
             # Truncate extremely large tool results to prevent API errors
             # Some providers (like custom GLM endpoints) have stricter limits
-            MAX_TOOL_RESULT_SIZE = 50000  # ~50K characters should be safe
-            if len(enriched_result) > MAX_TOOL_RESULT_SIZE:
-                truncated_size = MAX_TOOL_RESULT_SIZE - 500  # Leave room for message
+            max_tool_result_size = 50000  # ~50K characters should be safe
+            if len(enriched_result) > max_tool_result_size:
+                truncated_size = max_tool_result_size - 500  # Leave room for message
                 enriched_result = (
                     f"{enriched_result[:truncated_size]}\n\n"
-                    f"... [TRUNCATED: {len(enriched_result) - truncated_size} more characters]"
+                    f"... [TRUNCATED: {len(enriched_result) - truncated_size} "
+                    "more characters]"
                 )
                 logger.warning(
-                    f"Tool '{name}' result truncated from {len(result)} to {MAX_TOOL_RESULT_SIZE} chars"
+                    f"Tool '{name}' result truncated from {len(result)} "
+                    f"to {max_tool_result_size} chars"
                 )
 
             return {
@@ -802,7 +828,7 @@ class Agent:
 
     def _register_background_process(self, process_id: str, command: str) -> None:
         """Register a background process with the agent for context awareness.
-        
+
         Args:
             process_id: Unique identifier for the background process
             command: Command being executed
@@ -812,48 +838,58 @@ class Agent:
             "command": command,
             "start_time": time.time(),
             "status": "starting",
-            "args": {}  # Tool arguments used
+            "args": {},  # Tool arguments used
         }
-        
-        self.background_process_counter += 1
-        logger.info(f"Agent registered background process: {process_id[:12]}... for command: {command[:100]}")
 
-    def _get_background_process(self, process_id: str) -> Optional[Dict[str, Any]]:
+        self.background_process_counter += 1
+        logger.info(
+            f"Agent registered background process: {process_id[:12]}... "
+            f"for command: {command[:100]}"
+        )
+
+    def _get_background_process(self, process_id: Optional[str]) -> Dict[str, Any]:
         """Get information about a background process.
-        
+
         Args:
             process_id: Process identifier
-            
+
         Returns:
-            Process information dict or None if not found
+            Process information dict or empty dict if not found
         """
-        return self.background_processes.get(process_id)
+        if process_id is None:
+            return {}
+        return self.background_processes.get(process_id, {})
 
     def _list_background_processes(self) -> List[Dict[str, Any]]:
         """List all tracked background processes.
-        
+
         Returns:
             List of process information dictionaries
         """
         return list(self.background_processes.values())
 
-    def _handle_background_tool_result(self, tool_name: str, args: dict, result: str, tool_use_id: str) -> str:
+    def _handle_background_tool_result(
+        self, tool_name: str, args: dict, result: str, tool_use_id: str
+    ) -> str:
         """Handle results from background tools with enhanced context.
-        
+
         Args:
             tool_name: Name of the background tool
             args: Arguments passed to the tool
             result: Result from tool execution
             tool_use_id: Tool use ID from LLM
-            
+
         Returns:
             Enhanced result string with process information
         """
         if tool_name == "run_bash_background":
             # Extract process ID from result
             import re
+
             command = args.get("command", "unknown")
-            match = re.search(r'Background process started: (\w+-\w+-\w+-\w+-\w+)', result)
+            match = re.search(
+                r"Background process started: (\w+-\w+-\w+-\w+-\w+)", result
+            )
 
             if match:
                 process_id = match.group(1)
@@ -874,39 +910,53 @@ class Agent:
                     f"Command: {command}\n\n"
                     f"{result}"
                 )
-        
-        elif tool_name in ["get_background_status", "get_background_output", "list_background_processes"]:
+
+        elif tool_name in [
+            "get_background_status",
+            "get_background_output",
+            "list_background_processes",
+        ]:
             # These tools work with existing processes, add process context
             process_info = None
-            
-            if tool_name == "get_background_status" or tool_name == "get_background_output":
+
+            if (
+                tool_name == "get_background_status"
+                or tool_name == "get_background_output"
+            ):
                 process_id = args.get("process_id")
                 process_info = self._get_background_process(process_id)
             elif tool_name == "list_background_processes":
                 from .background_executor import get_background_executor
+
                 executor = get_background_executor()
                 processes = executor.list_all_processes()
                 if processes:
                     process_info = {
                         "count": len(processes),
-                        "running": len([p for p in processes if p.status.value == "running"]),
-                        "completed": len([p for p in processes if p.status.value == "completed"])
+                        "running": len(
+                            [p for p in processes if p.status.value == "running"]
+                        ),
+                        "completed": len(
+                            [p for p in processes if p.status.value == "completed"]
+                        ),
                     }
-            
+
             # Enhance result with process context
             if process_info:
                 if tool_name == "get_background_status":
+                    runtime = time.time() - process_info.get("start_time", time.time())
                     enriched_result = (
-                        f"📊 Process Status: {process_info.get('process_id', 'unknown')}\n"
+                        f"📊 Process Status: "
+                        f"{process_info.get('process_id', 'unknown')}\n"
                         f"Status: {process_info.get('status', 'unknown')}\n"
                         f"Command: {process_info.get('command', 'unknown')}\n"
-                        f"Runtime: {time.time() - process_info.get('start_time', time.time()):.1f}s\n"
-                        f"{'─' * 40}\n"
-                        f"{result}"
+                        f"Runtime: {runtime:.1f} s\n"
+                        f"{'─' * 40}\n{result}"
                     )
                 elif tool_name == "get_background_output":
                     enriched_result = (
-                        f"📄 Process Output: {process_info.get('process_id', 'unknown')}\n"
+                        f"📄 Process Output: "
+                        f"{process_info.get('process_id', 'unknown')}\n"
                         f"Command: {process_info.get('command', 'unknown')}\n"
                         f"Status: {process_info.get('status', 'unknown')}\n"
                         f"{'─' * 40}\n"
@@ -916,7 +966,7 @@ class Agent:
                     active_count = process_info.get("count", 0)
                     running_count = process_info.get("running", 0)
                     completed_count = process_info.get("completed", 0)
-                    
+
                     enriched_result = (
                         f"📋 Background Processes Summary\n"
                         f"Total: {active_count}\n"
@@ -925,9 +975,9 @@ class Agent:
                         f"{'─' * 40}\n"
                         f"{result}"
                     )
-                
+
                 return enriched_result
-            
+
         # Default: return as-is for unknown background tools
         return result
 
@@ -973,14 +1023,20 @@ class Agent:
 
         Args:
             max_messages: Maximum number of messages to keep (default: 16)
-                         Balanced to avoid over-compaction while staying under provider limits.
-                         Previous value of 10 caused too-frequent compaction overhead.
-            max_chars: Maximum total character count for all messages (default: 60K)
-                       Increased from 40K to reduce compaction frequency while staying safe
+                         Balanced to avoid over-compaction while
+                         staying under provider limits. Previous
+                         value of 10 caused too-frequent
+                         compaction overhead.
+            max_chars: Maximum total character count for all
+                       messages (default: 60K). Increased from
+                       40K to reduce compaction frequency
         """
         # Check both message count and character size
         total_chars = self._calculate_conversation_size()
-        logger.debug(f"Context check: {len(self.messages)} messages, {total_chars} chars (limits: {max_messages} msgs, {max_chars} chars)")
+        logger.debug(
+            f"Context check: {len(self.messages)} messages, "
+            f"{total_chars} chars (limits: {max_messages} msgs, {max_chars})"
+        )
 
         # If under both limits, no action needed
         if len(self.messages) < max_messages and total_chars <= max_chars:
@@ -989,9 +1045,11 @@ class Agent:
         # If over limits, just log it (compaction disabled - testing without it)
         if total_chars > max_chars or len(self.messages) >= max_messages:
             logger.warning(
-                f"Context limits reached ({len(self.messages)} msgs, {total_chars} chars) - compaction disabled for testing"
+                f"Context limits reached ({len(self.messages)} msgs, "
+                f"{total_chars} chars) - compaction disabled for testing"
             )
-            # self._compact_conversation()  # DISABLED to test behavior without compaction
+            # DISABLED to test behavior without compaction
+            # self._compact_conversation()
             return
 
     def _compact_conversation(self):
@@ -1051,10 +1109,7 @@ class Agent:
         summary_text += f"[{len(middle_messages)} messages compacted]"
 
         # Create summary message
-        summary_message = {
-            "role": "user",
-            "content": summary_text
-        }
+        summary_message = {"role": "user", "content": summary_text}
 
         # Replace message history
         old_count = len(self.messages)
@@ -1069,7 +1124,8 @@ class Agent:
             f"(saved ~{old_size - new_size} chars)"
         )
         console.print(
-            f"[dim]💾 Conversation compacted: {old_count} → {len(self.messages)} messages "
+            f"[dim]💾 Conversation compacted: {old_count} → "
+            f"{len(self.messages)} messages "
             f"(saved ~{(old_size - new_size) / 1024:.1f}KB)[/dim]"
         )
 
@@ -1080,13 +1136,16 @@ class Agent:
         from slash commands or user requests.
         """
         if len(self.messages) <= 6:
-            console.print("[yellow]⚠ Conversation too short to compact (need at least 6 messages)[/yellow]")
+            console.print(
+                "[yellow]⚠ Conversation too short to compact "
+                "(need at least 6 messages)[/yellow]"
+            )
             return False
 
         self._compact_conversation()
         return True
 
-    def _extract_text(self, response) -> str:
+    def _extract_text(self, response: "Message") -> str:
         """Extract text content from response.
 
         Args:
@@ -1149,15 +1208,16 @@ class Agent:
 
             # Log API request details for debugging
             logger.debug(
-                f"Streaming API request: model={model}, "
-                f"messages_count={len(self.messages)}, "
-                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}, "
+                f"Streaming API request: model={model} "
+                f"messages_count={len(self.messages)} "
+                f"tools_count={len(self.tool_registry.get_schemas(read_only=read_only))}"
                 f"execution_mode={self.execution_mode.value}"
             )
 
             # Stream LLM response
             try:
-                # When using OAuth, exclude risk_level field (Anthropic OAuth API rejects custom fields)
+                # When using OAuth, exclude risk_level field (Anthropic
+                # OAuth API rejects custom fields)
                 include_risk = not bool(self._provider_config.oauth)
 
                 with self.client.messages.stream(
@@ -1244,7 +1304,8 @@ class Agent:
 
                         # Log tool results for debugging
                         logger.debug(
-                            f"Added {len(tool_results)} tool result(s) to conversation history"
+                            f"Added {len(tool_results)} tool result(s) "
+                            "to conversation history"
                         )
 
                         # Continue loop - LLM will process tool results
@@ -1259,19 +1320,22 @@ class Agent:
                     elif final_message.stop_reason is None:
                         # Some providers (like MiniMax M2) return None as stop_reason
                         # This is valid - treat it as end_turn
-                        logger.debug(f"Stop reason is None, treating as end_turn")
+                        logger.debug("Stop reason is None, treating as end_turn")
                         return
 
                     else:
                         # Log unexpected stop reasons but don't treat as error
                         logger.warning(
-                            f"Unexpected stop reason: {final_message.stop_reason}, treating as end_turn"
+                            f"Unexpected stop reason: {final_message.stop_reason} "
+                            "treating as end_turn"
                         )
                         return
             except Exception as e:
                 # Check if this is an overloaded error (529)
                 error_message = str(e)
-                is_overloaded = "overloaded" in error_message.lower() or "529" in error_message
+                is_overloaded = (
+                    "overloaded" in error_message.lower() or "529" in error_message
+                )
 
                 logger.error(
                     f"Streaming API call failed: {e}",
@@ -1284,8 +1348,10 @@ class Agent:
                     yield {
                         "type": "error",
                         "content": (
-                            "⚠️ Anthropic API is temporarily overloaded (all 5 retry attempts failed).\n\n"
-                            "This is a service-level issue, not related to your request size.\n"
+                            "⚠️ Anthropic API is temporarily overloaded "
+                            "(all 5 retry attempts failed).\n\n"
+                            "This is a service-level issue, not related to your "
+                            "request size.\n"
                             "Please try again in a few moments."
                         ),
                     }
@@ -1440,8 +1506,8 @@ class SimpleAgent:
                 self._client = anthropic.Anthropic(
                     api_key=self.provider_config.get_api_key(),
                     base_url=self.provider_config.base_url,
-                    max_retries=5,  # Increase from default 2 to handle overloaded errors
-                    timeout=600.0,  # 10 minutes timeout for long-running requests
+                    max_retries=5,  # Increase from default 2
+                    timeout=600.0,  # 10 minutes for long-running requests
                 )
             except ImportError as e:
                 raise ImportError(
@@ -1451,7 +1517,7 @@ class SimpleAgent:
         return self._client
 
     def run(self, user_message: str, system_prompt: Optional[str] = None) -> str:
-        """Simple conversation without tools.
+        """Run a simple conversation without tools.
 
         Args:
             user_message: User's message
@@ -1472,6 +1538,6 @@ class SimpleAgent:
         # Extract text
         for block in response.content:
             if block.type == "text":
-                return block.text
+                return str(block.text)
 
         return ""

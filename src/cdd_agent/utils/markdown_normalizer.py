@@ -20,7 +20,7 @@ class MarkdownNormalizer:
 
     @staticmethod
     def normalize(text: str) -> str:
-        """Apply all normalization rules to markdown text.
+        r"""Apply all normalization rules to markdown text.
 
         Args:
             text: Raw markdown text (potentially from LLM)
@@ -103,7 +103,7 @@ class MarkdownNormalizer:
             Text with maximum 2 consecutive blank lines
         """
         # Replace 3+ newlines with exactly 2 newlines
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
         return text
 
     @staticmethod
@@ -120,11 +120,11 @@ class MarkdownNormalizer:
             Text with balanced code block markers
         """
         # Count triple backtick occurrences
-        triple_backticks = text.count('```')
+        triple_backticks = text.count("```")
 
         # If odd number, add one at the end (LLM probably got cut off)
         if triple_backticks % 2 == 1:
-            text = text.rstrip() + '\n```\n'
+            text = text.rstrip() + "\n```\n"
 
         return text
 
@@ -144,8 +144,8 @@ class MarkdownNormalizer:
         # Match lines that are ONLY dashes, asterisks, or underscores (3+)
         # Must be on their own line with optional whitespace
         text = re.sub(
-            r'^[\s]*(\*{3,}|_{3,})[\s]*$',
-            r'---',
+            r"^[\s]*(\*{3,}|_{3,})[\s]*$",
+            r"---",
             text,
             flags=re.MULTILINE,
         )
@@ -153,8 +153,8 @@ class MarkdownNormalizer:
         # Also normalize lines with dashes that are too long
         # (more than 10 dashes is excessive and may be decorative)
         text = re.sub(
-            r'^[\s]*-{10,}[\s]*$',
-            r'---',
+            r"^[\s]*-{10,}[\s]*$",
+            r"---",
             text,
             flags=re.MULTILINE,
         )
@@ -178,15 +178,15 @@ class MarkdownNormalizer:
         # Ensure blank line before headings (except at document start)
         # Match heading not preceded by blank line (but not at start)
         text = re.sub(
-            r'([^\n])\n(#{1,6} )',
-            r'\1\n\n\2',
+            r"([^\n])\n(#{1,6} )",
+            r"\1\n\n\2",
             text,
         )
 
         # Remove multiple blank lines after headings
         text = re.sub(
-            r'(#{1,6} .+)\n{3,}',
-            r'\1\n\n',
+            r"(#{1,6} .+)\n{3,}",
+            r"\1\n\n",
             text,
         )
 
@@ -206,14 +206,14 @@ class MarkdownNormalizer:
             Text with trailing whitespace removed
         """
         # Remove trailing whitespace from each line
-        lines = text.split('\n')
+        lines = text.split("\n")
         lines = [line.rstrip() for line in lines]
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
 
 # Convenience function for quick access
 def normalize_markdown(text: str) -> str:
-    """Normalize markdown text (convenience function).
+    r"""Normalize markdown text (convenience function).
 
     Args:
         text: Raw markdown text

@@ -5,7 +5,6 @@ ticket spec.yaml files used in the CDD workflow.
 """
 
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -30,7 +29,7 @@ class TicketSpec:
         file_path: Path to the spec.yaml file
     """
 
-    def __init__(self, data: dict, file_path: Optional[Path] = None):
+    def __init__(self, data: dict, file_path: Path | None = None):
         """Initialize ticket spec from parsed YAML data.
 
         Args:
@@ -143,7 +142,15 @@ class TicketSpec:
             )
 
         # Check for common vague words
-        vague_words = ["somehow", "maybe", "probably", "tbd", "todo", "fix", "improve"]
+        vague_words = [
+            "somehow",
+            "maybe",
+            "probably",
+            "tbd",
+            "todo",
+            "fix",
+            "improve",
+        ]
         desc_lower = self.description.lower()
         found_vague = [word for word in vague_words if word in desc_lower]
         if found_vague:
@@ -237,7 +244,7 @@ def parse_ticket_spec(file_path: Path) -> TicketSpec:
         raise TicketParseError(f"Error reading {file_path}: {e}")
 
 
-def save_ticket_spec(spec: TicketSpec, file_path: Optional[Path] = None) -> None:
+def save_ticket_spec(spec: TicketSpec, file_path: Path | None = None) -> None:
     """Save a ticket spec back to YAML file.
 
     Args:

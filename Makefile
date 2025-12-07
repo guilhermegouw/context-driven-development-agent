@@ -49,14 +49,14 @@ lint-fix: check-python ## Run linters and auto-fix issues
 	@echo "$(BLUE)Running linters with auto-fix...$(NC)"
 	poetry run ruff check --fix src/ tests/
 
-format: check-python ## Format code with black
+format: check-python ## Format code with ruff
 	@echo "$(BLUE)Formatting code...$(NC)"
-	poetry run black src/ tests/
+	poetry run ruff format src/ tests/
 	@echo "$(GREEN)✓ Code formatted$(NC)"
 
 format-check: check-python ## Check code formatting without changes
 	@echo "$(BLUE)Checking code formatting...$(NC)"
-	poetry run black --check src/ tests/
+	poetry run ruff format --check src/ tests/
 
 typecheck: check-python ## Run type checker (mypy)
 	@echo "$(BLUE)Running type checker...$(NC)"
