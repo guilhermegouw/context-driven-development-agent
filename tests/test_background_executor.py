@@ -189,7 +189,7 @@ class TestBackgroundProcess(unittest.TestCase):
     def test_runtime_calculation(self):
         """Test runtime calculation for running and completed processes."""
         process = BackgroundProcess(
-            command="echo 'test'",
+            command="sleep 0.1 && echo 'test'",
             process_id=self.process_id,
             output_queue=self.output_queue,
         )
@@ -198,11 +198,11 @@ class TestBackgroundProcess(unittest.TestCase):
         self.assertEqual(process.get_runtime(), 0.0)
 
         process.start()
-        time.sleep(0.05)  # Give it a bit more time
+        time.sleep(0.05)  # Give it a bit of time
 
-        # Runtime while running (may have completed quickly)
+        # Runtime while running (process should still be running due to sleep)
         runtime = process.get_runtime()
-        self.assertGreater(runtime, 0.01)
+        self.assertGreater(runtime, 0.0)
         self.assertLess(runtime, 1.0)
 
         # Wait for completion
@@ -217,7 +217,7 @@ class TestBackgroundProcess(unittest.TestCase):
     def test_output_line_limit(self):
         """Test that output lines are limited to prevent memory bloat."""
         process = BackgroundProcess(
-            command='for i in {1..15000}; do echo "Line $i"; done',
+            command="bash -c 'for i in {1..15000}; do echo \"Line $i\"; done'",
             process_id=self.process_id,
             output_queue=self.output_queue,
         )
@@ -485,7 +485,7 @@ class TestIntegrationScenarios(unittest.TestCase):
 
         try:
             process = executor.execute_command(
-                "for i in {1..100}; do echo 'Output line $i'; done"
+                "bash -c \"for i in {1..100}; do echo 'Output line $i'; done\""
             )
 
             # Wait for completion

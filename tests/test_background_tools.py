@@ -109,7 +109,9 @@ class TestBackgroundTools(unittest.TestCase):
     def test_get_background_output_success(self):
         """Test getting output from a running process."""
         # Start a process that generates output
-        start_result = run_bash_background('for i in {1..3}; do echo "Line $i"; done')
+        start_result = run_bash_background(
+            "bash -c 'for i in {1..3}; do echo \"Line $i\"; done'"
+        )
         match = re.search(
             r"Background process started: (\w+-\w+-\w+-\w+-\w+)", start_result
         )
@@ -141,7 +143,9 @@ class TestBackgroundTools(unittest.TestCase):
     def test_get_background_output_with_lines_limit(self):
         """Test getting output with line limit."""
         # Start a process that generates many lines
-        start_result = run_bash_background('for i in {1..10}; do echo "Line $i"; done')
+        start_result = run_bash_background(
+            "bash -c 'for i in {1..10}; do echo \"Line $i\"; done'"
+        )
         match = re.search(
             r"Background process started: (\w+-\w+-\w+-\w+-\w+)", start_result
         )
@@ -198,7 +202,7 @@ class TestBackgroundTools(unittest.TestCase):
         """Test interrupting a running process."""
         # Start a long-running process
         start_result = run_bash_background(
-            "for i in {1..10}; do echo 'Step $i'; sleep 0.1; done"
+            "bash -c \"for i in {1..10}; do echo 'Step $i'; sleep 0.1; done\""
         )
         match = re.search(
             r"Background process started: (\w+-\w+-\w+-\w+-\w+)", start_result
@@ -253,7 +257,7 @@ class TestBackgroundTools(unittest.TestCase):
         """Test complete workflow: start, monitor, get output, interrupt."""
         # 1. Start a long-running process (simple sleep command)
         start_result = run_bash_background(
-            'for i in {1..3}; do echo "Step $i"; sleep 0.2; done'
+            "bash -c 'for i in {1..3}; do echo \"Step $i\"; sleep 0.2; done'"
         )
         match = re.search(
             r"Background process started: (\w+-\w+-\w+-\w+-\w+)", start_result
