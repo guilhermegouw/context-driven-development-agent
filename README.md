@@ -658,33 +658,29 @@ We welcome contributions! Here's how to get started:
 - Add provider-specific optimizations
 - Enhance documentation
 
-### Running Tests
+### Development Commands
+
+Use `make` for common tasks:
 
 ```bash
-# Install dev dependencies
-poetry install
-
-# Run full test suite
-poetry run pytest
-
-# Run with coverage
-poetry run pytest --cov=cdd_agent
-
-# Run specific test
-poetry run pytest tests/test_tools.py -v
+make install        # Install dependencies (checks Python 3.10+)
+make test           # Run tests
+make test-cov       # Run tests with coverage
+make format         # Format code
+make lint           # Lint code
+make typecheck      # Type check
+make qa             # Run all checks (required before PR)
 ```
 
-### Code Quality
+Or use Poetry directly:
 
 ```bash
-# Format code
+poetry install
+poetry run pytest
+poetry run pytest --cov=cdd_agent
 poetry run black src/ tests/
-
-# Type checking
+poetry run ruff check src/ tests/
 poetry run mypy src/
-
-# Linting
-poetry run ruff check src/
 ```
 
 ---
