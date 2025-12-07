@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-0.0.4-blue.svg)](https://github.com/guilhermegouw/context-driven-development-agent)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/guilhermegouw/context-driven-development-agent/actions/workflows/qa.yml/badge.svg)](https://github.com/guilhermegouw/context-driven-development-agent/actions)
 
 ---
 
