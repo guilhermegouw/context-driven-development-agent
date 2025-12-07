@@ -11,11 +11,9 @@ from pathlib import Path
 
 from src.cdd_agent.agents import SocratesAgent
 from src.cdd_agent.slash_commands import SocratesCommand
-from src.cdd_agent.utils.yaml_parser import (
-    TicketSpec,
-    parse_ticket_spec,
-    save_ticket_spec,
-)
+from src.cdd_agent.utils.yaml_parser import TicketSpec
+from src.cdd_agent.utils.yaml_parser import parse_ticket_spec
+from src.cdd_agent.utils.yaml_parser import save_ticket_spec
 
 
 # Mock objects for testing

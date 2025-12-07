@@ -185,7 +185,7 @@ def main():
     print(f"Third-party imports: {total_third_party:.1f}ms")
     print(f"CDD Agent modules:   {total_module_time:.1f}ms")
     print(f"Total measured:      {total_third_party + total_module_time:.1f}ms")
-    print(f"\nTarget: <200ms (ideal: <100ms)")
+    print("\nTarget: <200ms (ideal: <100ms)")
     print(f"Current: {total_third_party + total_module_time:.1f}ms")
 
     if total_third_party + total_module_time > 200:

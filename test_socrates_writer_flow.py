@@ -11,12 +11,12 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+from src.cdd_agent.agent import Agent
 from src.cdd_agent.agents.socrates import SocratesAgent
 from src.cdd_agent.agents.writer import WriterAgent
 from src.cdd_agent.config import ProviderConfig
 from src.cdd_agent.session.chat_session import ChatSession
 from src.cdd_agent.tools import ToolRegistry
-from src.cdd_agent.agent import Agent
 
 
 async def test_socrates_writer_flow():
@@ -29,7 +29,11 @@ async def test_socrates_writer_flow():
     config = ProviderConfig(
         provider="anthropic",
         base_url="https://api.anthropic.com",
-        models={"small": "claude-3-haiku-20240307", "mid": "claude-3-5-sonnet-20241022", "big": "claude-3-opus-20240229"}
+        models={
+            "small": "claude-3-haiku-20240307",
+            "mid": "claude-3-5-sonnet-20241022",
+            "big": "claude-3-opus-20240229",
+        },
     )
     tool_registry = ToolRegistry()
     general_agent = Agent(config, tool_registry, model_tier="mid", enable_context=False)
@@ -49,11 +53,11 @@ async def test_socrates_writer_flow():
             agent_class=SocratesAgent,
             target_path=test_spec_path,
         )
-        print(f"✓ Socrates initialized")
+        print("✓ Socrates initialized")
         print(f"  Agent: {session.get_current_agent_name()}")
 
         # Verify Socrates has ReadOnlyToolRegistry
-        print(f"\n2. Verifying Socrates has read-only tools")
+        print("\n2. Verifying Socrates has read-only tools")
         print("-" * 60)
 
         socrates = session.current_agent
@@ -61,12 +65,17 @@ async def test_socrates_writer_flow():
 
         # Check that write_file is NOT in allowed tools
         from src.cdd_agent.utils.filtered_tools import ReadOnlyToolRegistry
-        assert isinstance(registry, ReadOnlyToolRegistry), "Should be ReadOnlyToolRegistry"
+
+        assert isinstance(
+            registry, ReadOnlyToolRegistry
+        ), "Should be ReadOnlyToolRegistry"
         print(f"✓ Tool registry type: {type(registry).__name__}")
-        print(f"  Allowed tools: {', '.join(sorted(ReadOnlyToolRegistry.ALLOWED_TOOLS))}")
+        print(
+            f"  Allowed tools: {', '.join(sorted(ReadOnlyToolRegistry.ALLOWED_TOOLS))}"
+        )
 
         # Try to execute write_file (should fail)
-        print(f"\n3. Testing write protection")
+        print("\n3. Testing write protection")
         print("-" * 60)
 
         try:
@@ -77,7 +86,7 @@ async def test_socrates_writer_flow():
             print(f"✓ Write protection working: {str(e)[:80]}...")
 
         # Simulate Socrates generating content
-        print(f"\n4. Simulating content generation")
+        print("\n4. Simulating content generation")
         print("-" * 60)
 
         test_content = """title: Test Feature
@@ -96,28 +105,28 @@ acceptance_criteria:
         print(f"  ready_to_save: {socrates.ready_to_save}")
 
         # Test Writer agent directly
-        print(f"\n5. Testing Writer agent")
+        print("\n5. Testing Writer agent")
         print("-" * 60)
 
         writer = WriterAgent(test_spec_path)
         result = writer.save(test_content)
 
-        print(f"✓ Writer executed")
+        print("✓ Writer executed")
         print(f"  Result: {result[:100]}...")
 
         # Verify file exists
         if test_spec_path.exists():
             content = test_spec_path.read_text()
-            print(f"\n✓ File saved successfully!")
+            print("\n✓ File saved successfully!")
             print(f"  Path: {test_spec_path}")
             print(f"  Size: {len(content)} bytes")
             print(f"  Content matches: {content == test_content}")
         else:
-            print(f"\n❌ ERROR: File not saved!")
+            print("\n❌ ERROR: File not saved!")
             return False
 
         # Test the complete handoff through ChatSession
-        print(f"\n6. Testing ChatSession handoff logic")
+        print("\n6. Testing ChatSession handoff logic")
         print("-" * 60)
 
         # Reset for full test
@@ -128,22 +137,24 @@ acceptance_criteria:
 
         # Simulate what happens in process_input when agent is done
         if socrates.is_done():
-            if (hasattr(socrates, 'ready_to_save') and
-                socrates.ready_to_save and
-                hasattr(socrates, 'generated_content')):
+            if (
+                hasattr(socrates, "ready_to_save")
+                and socrates.ready_to_save
+                and hasattr(socrates, "generated_content")
+            ):
 
                 writer = WriterAgent(socrates.target_path)
                 save_result = writer.save(socrates.generated_content)
-                print(f"✓ ChatSession handoff working")
+                print("✓ ChatSession handoff working")
                 print(f"  Writer result: {save_result[:100]}...")
 
         # Verify file exists again
         if test_spec_path.exists():
-            print(f"\n✓ Complete flow successful!")
+            print("\n✓ Complete flow successful!")
             print(f"  File: {test_spec_path}")
             return True
         else:
-            print(f"\n❌ ERROR: Handoff failed, file not saved!")
+            print("\n❌ ERROR: Handoff failed, file not saved!")
             return False
 
 

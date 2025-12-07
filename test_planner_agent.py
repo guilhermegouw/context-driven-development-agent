@@ -14,7 +14,8 @@ from pathlib import Path
 
 from src.cdd_agent.agents import PlannerAgent
 from src.cdd_agent.slash_commands import PlanCommand
-from src.cdd_agent.utils.plan_model import ImplementationPlan, PlanStep
+from src.cdd_agent.utils.plan_model import ImplementationPlan
+from src.cdd_agent.utils.plan_model import PlanStep
 
 
 # Mock objects for testing

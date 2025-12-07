@@ -12,10 +12,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from src.cdd_agent.slash_commands import (
-    get_router,
-    setup_commands,
-)
+from src.cdd_agent.slash_commands import get_router
+from src.cdd_agent.slash_commands import setup_commands
 from src.cdd_agent.slash_commands.help_command import HelpCommand
 from src.cdd_agent.slash_commands.init_command import InitCommand
 from src.cdd_agent.slash_commands.new_command import NewCommand
