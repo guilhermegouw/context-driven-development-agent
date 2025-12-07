@@ -691,6 +691,7 @@ poetry run ruff check src/
 
 ## 📚 Documentation
 
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture and component diagrams
 - **[ROADMAP.md](ROADMAP.md)** - Development roadmap and milestones
 - **[OAUTH_IMPLEMENTATION.md](OAUTH_IMPLEMENTATION.md)** - OAuth implementation details
 - **[OAUTH_LIMITATION.md](OAUTH_LIMITATION.md)** - OAuth restrictions and limitations
