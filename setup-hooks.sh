@@ -15,16 +15,19 @@ if [ ! -d .git ]; then
     exit 1
 fi
 
-# Check if pre-commit is installed
-if ! command -v pre-commit &> /dev/null; then
+# Check if pre-commit is installed (via Poetry or system)
+if command -v poetry &> /dev/null && poetry run pre-commit --version &> /dev/null; then
+    PRE_COMMIT="poetry run pre-commit"
+elif command -v pre-commit &> /dev/null; then
+    PRE_COMMIT="pre-commit"
+else
     echo -e "${BLUE}Installing pre-commit...${NC}"
-
-    # Try to install with poetry if available
     if command -v poetry &> /dev/null; then
         poetry add --group dev pre-commit
-    # Otherwise try pip
+        PRE_COMMIT="poetry run pre-commit"
     elif command -v pip &> /dev/null; then
         pip install pre-commit
+        PRE_COMMIT="pre-commit"
     else
         echo -e "${RED}✗ Cannot install pre-commit (no poetry or pip found)${NC}"
         echo -e "${YELLOW}Install manually: pip install pre-commit${NC}"
@@ -34,9 +37,15 @@ if ! command -v pre-commit &> /dev/null; then
 fi
 
 # Install pre-commit hooks (idempotent - safe to run multiple times)
-pre-commit install --install-hooks > /dev/null 2>&1
+OUTPUT=$($PRE_COMMIT install --install-hooks 2>&1)
+if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ Failed to install pre-commit hooks${NC}"
+    echo "$OUTPUT"
+    exit 1
+fi
 
 echo -e "${GREEN}✓ Git hooks configured${NC}"
 echo ""
 echo -e "Pre-commit will run ${BLUE}make qa${NC} before each commit"
 echo -e "To skip: ${YELLOW}git commit --no-verify${NC}"
+# test change

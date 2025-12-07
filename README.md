@@ -663,7 +663,7 @@ We welcome contributions! Here's how to get started:
 Use `make` for common tasks:
 
 ```bash
-make install        # Install dependencies (checks Python 3.10+)
+make install        # Install dependencies (checks Python 3.10+) + setup git hooks
 make test           # Run tests
 make test-cov       # Run tests with coverage
 make format         # Format code
@@ -671,6 +671,8 @@ make lint           # Lint code
 make typecheck      # Type check
 make qa             # Run all checks (required before PR)
 ```
+
+**Git Hooks:** `make install` sets up pre-commit hooks that automatically run `make qa` before each commit. To skip: `git commit --no-verify`
 
 Or use Poetry directly:
 
