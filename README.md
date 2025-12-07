@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/version-0.0.4-blue.svg)](https://github.com/guilhermegouw/context-driven-development-agent)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/guilhermegouw/context-driven-development-agent/actions/workflows/qa.yml/badge.svg)](https://github.com/guilhermegouw/context-driven-development-agent/actions)
 
 ---
 
@@ -658,33 +659,31 @@ We welcome contributions! Here's how to get started:
 - Add provider-specific optimizations
 - Enhance documentation
 
-### Running Tests
+### Development Commands
+
+Use `make` for common tasks:
 
 ```bash
-# Install dev dependencies
-poetry install
-
-# Run full test suite
-poetry run pytest
-
-# Run with coverage
-poetry run pytest --cov=cdd_agent
-
-# Run specific test
-poetry run pytest tests/test_tools.py -v
+make install        # Install dependencies (checks Python 3.10+) + setup git hooks
+make test           # Run tests
+make test-cov       # Run tests with coverage
+make format         # Format code
+make lint           # Lint code
+make typecheck      # Type check
+make qa             # Run all checks (required before PR)
 ```
 
-### Code Quality
+**Git Hooks:** `make install` sets up pre-commit hooks that automatically run `make qa` before each commit. To skip: `git commit --no-verify`
+
+Or use Poetry directly:
 
 ```bash
-# Format code
+poetry install
+poetry run pytest
+poetry run pytest --cov=cdd_agent
 poetry run black src/ tests/
-
-# Type checking
+poetry run ruff check src/ tests/
 poetry run mypy src/
-
-# Linting
-poetry run ruff check src/
 ```
 
 ---

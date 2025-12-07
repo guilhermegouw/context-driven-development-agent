@@ -1,0 +1,13 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+
+repos:
+  - repo: local
+    hooks:
+      - id: make-qa
+        name: Run make qa
+        entry: make qa
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
