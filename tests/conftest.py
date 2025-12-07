@@ -1,12 +1,13 @@
 """Shared test fixtures for CDD Agent tests."""
 
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
+
+import pytest
 
 from cdd_agent.approval import ApprovalManager
 from cdd_agent.config import ApprovalMode
-from cdd_agent.tools import RiskLevel, ToolRegistry
+from cdd_agent.tools import RiskLevel
+from cdd_agent.tools import ToolRegistry
 
 
 @pytest.fixture

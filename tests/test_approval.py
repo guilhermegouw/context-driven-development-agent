@@ -1,10 +1,6 @@
 """Unit tests for ApprovalManager."""
 
 import os
-from pathlib import Path
-from unittest.mock import MagicMock
-
-import pytest
 
 from cdd_agent.approval import ApprovalManager
 from cdd_agent.config import ApprovalMode
@@ -14,7 +10,9 @@ from cdd_agent.tools import RiskLevel
 class TestApprovalManagerParanoidMode:
     """Test ApprovalManager in paranoid mode."""
 
-    def test_paranoid_asks_for_safe_tools(self, approval_manager_paranoid, mock_ui_callback):
+    def test_paranoid_asks_for_safe_tools(
+        self, approval_manager_paranoid, mock_ui_callback
+    ):
         """Paranoid mode should ask for approval even for SAFE tools."""
         result = approval_manager_paranoid.should_approve(
             "read_file", {"path": "test.txt"}, RiskLevel.SAFE
@@ -25,16 +23,22 @@ class TestApprovalManagerParanoidMode:
             "read_file", {"path": "test.txt"}, RiskLevel.SAFE
         )
 
-    def test_paranoid_asks_for_medium_tools(self, approval_manager_paranoid, mock_ui_callback):
+    def test_paranoid_asks_for_medium_tools(
+        self, approval_manager_paranoid, mock_ui_callback
+    ):
         """Paranoid mode should ask for approval for MEDIUM tools."""
         result = approval_manager_paranoid.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is True
         mock_ui_callback.assert_called_once()
 
-    def test_paranoid_asks_for_high_tools(self, approval_manager_paranoid, mock_ui_callback):
+    def test_paranoid_asks_for_high_tools(
+        self, approval_manager_paranoid, mock_ui_callback
+    ):
         """Paranoid mode should ask for approval for HIGH risk tools."""
         result = approval_manager_paranoid.should_approve(
             "run_bash", {"command": "ls"}, RiskLevel.HIGH
@@ -45,7 +49,9 @@ class TestApprovalManagerParanoidMode:
 
     def test_paranoid_respects_denial(self, mock_ui_callback_deny):
         """Paranoid mode should respect user denial."""
-        manager = ApprovalManager(mode=ApprovalMode.PARANOID, ui_callback=mock_ui_callback_deny)
+        manager = ApprovalManager(
+            mode=ApprovalMode.PARANOID, ui_callback=mock_ui_callback_deny
+        )
 
         result = manager.should_approve(
             "read_file", {"path": "test.txt"}, RiskLevel.SAFE
@@ -58,7 +64,9 @@ class TestApprovalManagerParanoidMode:
 class TestApprovalManagerBalancedMode:
     """Test ApprovalManager in balanced mode."""
 
-    def test_balanced_auto_approves_safe_tools(self, approval_manager_balanced, mock_ui_callback):
+    def test_balanced_auto_approves_safe_tools(
+        self, approval_manager_balanced, mock_ui_callback
+    ):
         """Balanced mode should auto-approve SAFE tools without asking."""
         result = approval_manager_balanced.should_approve(
             "read_file", {"path": "test.txt"}, RiskLevel.SAFE
@@ -68,18 +76,26 @@ class TestApprovalManagerBalancedMode:
         # UI callback should NOT be called for SAFE tools in balanced mode
         mock_ui_callback.assert_not_called()
 
-    def test_balanced_asks_for_medium_tools(self, approval_manager_balanced, mock_ui_callback):
+    def test_balanced_asks_for_medium_tools(
+        self, approval_manager_balanced, mock_ui_callback
+    ):
         """Balanced mode should ask for MEDIUM risk tools."""
         result = approval_manager_balanced.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is True
         mock_ui_callback.assert_called_once_with(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
-    def test_balanced_asks_for_high_tools(self, approval_manager_balanced, mock_ui_callback):
+    def test_balanced_asks_for_high_tools(
+        self, approval_manager_balanced, mock_ui_callback
+    ):
         """Balanced mode should ask for HIGH risk tools."""
         result = approval_manager_balanced.should_approve(
             "run_bash", {"command": "rm -rf /"}, RiskLevel.HIGH
@@ -90,10 +106,14 @@ class TestApprovalManagerBalancedMode:
 
     def test_balanced_respects_denial_for_medium(self, mock_ui_callback_deny):
         """Balanced mode should respect denial for MEDIUM tools."""
-        manager = ApprovalManager(mode=ApprovalMode.BALANCED, ui_callback=mock_ui_callback_deny)
+        manager = ApprovalManager(
+            mode=ApprovalMode.BALANCED, ui_callback=mock_ui_callback_deny
+        )
 
         result = manager.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is False
@@ -102,38 +122,52 @@ class TestApprovalManagerBalancedMode:
 class TestApprovalManagerTrustingMode:
     """Test ApprovalManager in trusting mode."""
 
-    def test_trusting_asks_first_time(self, approval_manager_trusting, mock_ui_callback):
+    def test_trusting_asks_first_time(
+        self, approval_manager_trusting, mock_ui_callback
+    ):
         """Trusting mode should ask on first use of a tool."""
         result = approval_manager_trusting.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is True
         mock_ui_callback.assert_called_once()
 
-    def test_trusting_remembers_approval(self, approval_manager_trusting, mock_ui_callback):
+    def test_trusting_remembers_approval(
+        self, approval_manager_trusting, mock_ui_callback
+    ):
         """Trusting mode should remember approval and not ask again."""
         # First call - should ask
         approval_manager_trusting.should_approve(
-            "write_file", {"path": "test1.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test1.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         mock_ui_callback.reset_mock()
 
         # Second call for same tool - should NOT ask (remembered)
         result = approval_manager_trusting.should_approve(
-            "write_file", {"path": "test2.txt", "content": "other"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test2.txt", "content": "other"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is True
         # UI callback should NOT be called second time
         mock_ui_callback.assert_not_called()
 
-    def test_trusting_different_tools_separate(self, approval_manager_trusting, mock_ui_callback):
+    def test_trusting_different_tools_separate(
+        self, approval_manager_trusting, mock_ui_callback
+    ):
         """Trusting mode should track different tools separately."""
         # Approve write_file
         approval_manager_trusting.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         mock_ui_callback.reset_mock()
@@ -146,11 +180,15 @@ class TestApprovalManagerTrustingMode:
         assert result is True
         mock_ui_callback.assert_called_once()
 
-    def test_trusting_reset_session_approvals(self, approval_manager_trusting, mock_ui_callback):
+    def test_trusting_reset_session_approvals(
+        self, approval_manager_trusting, mock_ui_callback
+    ):
         """Trusting mode should forget approvals when session is reset."""
         # First approval
         approval_manager_trusting.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         # Reset session
@@ -160,7 +198,9 @@ class TestApprovalManagerTrustingMode:
 
         # Should ask again after reset
         result = approval_manager_trusting.should_approve(
-            "write_file", {"path": "test2.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test2.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is True
@@ -173,7 +213,9 @@ class TestApprovalManagerTrustingMode:
 
         # Approve some tools
         approval_manager_trusting.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
         approval_manager_trusting.should_approve(
             "run_bash", {"command": "ls"}, RiskLevel.HIGH
@@ -187,11 +229,15 @@ class TestApprovalManagerTrustingMode:
 
     def test_trusting_denial_not_remembered(self, mock_ui_callback_deny):
         """Trusting mode should not remember denials, only approvals."""
-        manager = ApprovalManager(mode=ApprovalMode.TRUSTING, ui_callback=mock_ui_callback_deny)
+        manager = ApprovalManager(
+            mode=ApprovalMode.TRUSTING, ui_callback=mock_ui_callback_deny
+        )
 
         # First call - denied
         result1 = manager.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
         assert result1 is False
 
@@ -199,7 +245,9 @@ class TestApprovalManagerTrustingMode:
 
         # Second call - should ask again (denial not remembered)
         result2 = manager.should_approve(
-            "write_file", {"path": "test2.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test2.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result2 is False
@@ -232,7 +280,9 @@ class TestDangerousCommandDetection:
         """Should detect dd disk overwrite."""
         manager = ApprovalManager(mode=ApprovalMode.PARANOID, ui_callback=None)
 
-        is_dangerous, warning = manager.is_dangerous_command("dd if=/dev/zero of=/dev/sda")
+        is_dangerous, warning = manager.is_dangerous_command(
+            "dd if=/dev/zero of=/dev/sda"
+        )
 
         assert is_dangerous is True
         assert "dd" in warning.lower()
@@ -250,7 +300,9 @@ class TestDangerousCommandDetection:
         """Should detect git push --force."""
         manager = ApprovalManager(mode=ApprovalMode.PARANOID, ui_callback=None)
 
-        is_dangerous, warning = manager.is_dangerous_command("git push origin main --force")
+        is_dangerous, warning = manager.is_dangerous_command(
+            "git push origin main --force"
+        )
 
         assert is_dangerous is True
         assert "force" in warning.lower()
@@ -297,7 +349,9 @@ class TestDangerousCommandDetection:
 
         for cmd in commands:
             is_dangerous, warning = manager.is_dangerous_command(cmd)
-            assert is_dangerous is False, f"Command '{cmd}' incorrectly flagged as dangerous"
+            assert (
+                is_dangerous is False
+            ), f"Command '{cmd}' incorrectly flagged as dangerous"
 
 
 class TestPathSafetyChecks:
@@ -333,7 +387,9 @@ class TestPathSafetyChecks:
         ]
 
         for path in system_paths:
-            assert manager.is_system_path(path) is True, f"Path '{path}' not detected as system path"
+            assert (
+                manager.is_system_path(path) is True
+            ), f"Path '{path}' not detected as system path"
 
     def test_non_system_path(self):
         """Normal paths should not be flagged as system paths."""
@@ -347,7 +403,9 @@ class TestPathSafetyChecks:
         ]
 
         for path in normal_paths:
-            assert manager.is_system_path(path) is False, f"Path '{path}' incorrectly flagged as system"
+            assert (
+                manager.is_system_path(path) is False
+            ), f"Path '{path}' incorrectly flagged as system"
 
     def test_project_root_detection(self, temp_project_dir):
         """Should detect project root from .git directory."""
@@ -387,9 +445,7 @@ class TestApprovalManagerNoCallback:
         """Without UI callback, should deny by default."""
         manager = ApprovalManager(mode=ApprovalMode.PARANOID, ui_callback=None)
 
-        result = manager.should_approve(
-            "run_bash", {"command": "ls"}, RiskLevel.HIGH
-        )
+        result = manager.should_approve("run_bash", {"command": "ls"}, RiskLevel.HIGH)
 
         assert result is False
 
@@ -408,7 +464,9 @@ class TestApprovalManagerNoCallback:
         manager = ApprovalManager(mode=ApprovalMode.BALANCED, ui_callback=None)
 
         result = manager.should_approve(
-            "write_file", {"path": "test.txt", "content": "data"}, RiskLevel.MEDIUM
+            "write_file",
+            {"path": "test.txt", "content": "data"},
+            RiskLevel.MEDIUM,
         )
 
         assert result is False

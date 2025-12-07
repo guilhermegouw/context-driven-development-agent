@@ -7,9 +7,9 @@ It validates, formats, and atomically writes content to disk.
 import logging
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import yaml
+
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,10 @@ class WriterAgent:
             self._validate_markdown(content)
         else:
             # Unknown format, allow it (assume text)
-            logger.warning(f"Unknown file format for {self.target_path.suffix}, skipping validation")
+            logger.warning(
+                f"Unknown file format for {self.target_path.suffix}, "
+                "skipping validation"
+            )
 
     def _validate_yaml(self, content: str) -> None:
         """Validate YAML syntax.
@@ -210,7 +213,7 @@ class WriterAgent:
         temp_fd, temp_path = tempfile.mkstemp(
             dir=self.target_path.parent,
             prefix=f".{self.target_path.name}.",
-            suffix=".tmp"
+            suffix=".tmp",
         )
 
         try:

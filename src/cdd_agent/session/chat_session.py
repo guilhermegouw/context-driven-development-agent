@@ -6,11 +6,15 @@ and enables seamless transitions between general chat and specialized agents.
 
 import logging
 from pathlib import Path
-from typing import Any, Optional, Type
+from typing import Any
+from typing import Optional
+from typing import Type
 
 from ..agents.writer import WriterAgent
-from ..slash_commands import get_router, setup_commands
+from ..slash_commands import get_router
+from ..slash_commands import setup_commands
 from .base_agent import BaseAgent
+
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +196,6 @@ class ChatSession:
                         and self.current_agent.ready_to_save
                         and hasattr(self.current_agent, "generated_content")
                     ):
-
                         logger.info("Agent ready to save, invoking Writer agent")
 
                         # Create Writer agent and save content

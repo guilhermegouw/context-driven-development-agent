@@ -57,7 +57,7 @@ class TestAgent(BaseAgent):
             Echo response with message counter
         """
         self.message_count += 1
-        self.conversation_history.append(user_input)
+        self.conversation_history.append({"role": "user", "content": str(user_input)})
 
         response = f"**[Message {self.message_count}/3]** You said: *{user_input}*"
 

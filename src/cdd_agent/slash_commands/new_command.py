@@ -3,12 +3,11 @@
 Handler for the /new slash command.
 """
 
-from ..mechanical.new_ticket import (
-    TicketCreationError,
-    create_new_documentation,
-    create_new_ticket,
-)
-from .base import BaseSlashCommand, CommandError
+from ..mechanical.new_ticket import TicketCreationError
+from ..mechanical.new_ticket import create_new_documentation
+from ..mechanical.new_ticket import create_new_ticket
+from .base import BaseSlashCommand
+from .base import CommandError
 
 
 class NewCommand(BaseSlashCommand):

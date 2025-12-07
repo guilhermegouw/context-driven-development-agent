@@ -4,9 +4,8 @@ These tests ensure that the MarkdownNormalizer correctly handles various
 markdown formatting issues that may appear in LLM responses.
 """
 
-import pytest
-
-from cdd_agent.utils.markdown_normalizer import MarkdownNormalizer, normalize_markdown
+from cdd_agent.utils.markdown_normalizer import MarkdownNormalizer
+from cdd_agent.utils.markdown_normalizer import normalize_markdown
 
 
 class TestUnderlineHeadings:
@@ -291,7 +290,7 @@ Heading
 ```
 
 Regular text."""
-        result = normalize_markdown(text)
+        normalize_markdown(text)
         # The underline inside code block should remain
         # Note: This is a known limitation - we don't parse code blocks separately
         # For now, we accept that code block content might be affected

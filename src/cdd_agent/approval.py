@@ -9,7 +9,9 @@ This module provides:
 import os
 import re
 from pathlib import Path
-from typing import Callable, Optional, Set
+from typing import Callable
+from typing import Optional
+from typing import Set
 
 from .config import ApprovalMode
 from .tools import RiskLevel
@@ -170,7 +172,12 @@ class ApprovalManager:
         for parent in [current] + list(current.parents):
             if any(
                 (parent / indicator).exists()
-                for indicator in [".git", "pyproject.toml", "package.json", "go.mod"]
+                for indicator in [
+                    ".git",
+                    "pyproject.toml",
+                    "package.json",
+                    "go.mod",
+                ]
             ):
                 return parent
 

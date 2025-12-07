@@ -21,8 +21,10 @@ Usage:
         print(f"Currently in {agent_name} mode")
 """
 
-from .base_agent import AgentError, BaseAgent
+from .base_agent import AgentError
+from .base_agent import BaseAgent
 from .chat_session import ChatSession
+
 
 __all__ = [
     "ChatSession",

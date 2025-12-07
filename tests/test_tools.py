@@ -1,7 +1,8 @@
 """Unit tests for tools, specifically git_commit."""
 
 import subprocess
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+from unittest.mock import patch
 
 from cdd_agent.tools import git_commit
 
@@ -226,10 +227,16 @@ class TestGitCommit:
             # git add file3.txt
             Mock(returncode=0, stdout="", stderr=""),
             # git diff --cached --name-only
-            Mock(returncode=0, stdout="file1.txt\nfile2.txt\nfile3.txt\n", stderr=""),
+            Mock(
+                returncode=0,
+                stdout="file1.txt\nfile2.txt\nfile3.txt\n",
+                stderr="",
+            ),
             # git diff --cached --stat
             Mock(
-                returncode=0, stdout=" 3 files changed, 10 insertions(+)\n", stderr=""
+                returncode=0,
+                stdout=" 3 files changed, 10 insertions(+)\n",
+                stderr="",
             ),
             # git commit
             Mock(returncode=0, stdout="", stderr=""),

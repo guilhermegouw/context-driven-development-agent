@@ -4,9 +4,11 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
+from typing import Tuple
 
 from rich.console import Console
+
 
 console = Console()
 

@@ -8,13 +8,16 @@ This module tests:
 """
 
 import os
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
 
 from src.cdd_agent.agent import Agent
-from src.cdd_agent.config import ConfigManager, ProviderConfig, Settings
-from src.cdd_agent.tools import RiskLevel, ToolRegistry
+from src.cdd_agent.config import ConfigManager
+from src.cdd_agent.config import ProviderConfig
+from src.cdd_agent.config import Settings
+from src.cdd_agent.tools import RiskLevel
+from src.cdd_agent.tools import ToolRegistry
 from src.cdd_agent.utils.execution_state import ExecutionMode
 
 
@@ -135,7 +138,11 @@ class TestAgentExecutionMode:
         return ProviderConfig(
             auth_token="test-token",
             base_url="https://api.test.com",
-            models={"small": "test-small", "mid": "test-mid", "big": "test-big"},
+            models={
+                "small": "test-small",
+                "mid": "test-mid",
+                "big": "test-big",
+            },
         )
 
     @pytest.fixture
@@ -202,7 +209,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
         )
@@ -217,7 +228,11 @@ class TestConfigManagerExecutionMode:
                     "anthropic": ProviderConfig(
                         auth_token="test",
                         base_url="https://api.test.com",
-                        models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                        models={
+                            "small": "test-s",
+                            "mid": "test-m",
+                            "big": "test-b",
+                        },
                     )
                 },
                 default_execution_mode="invalid",
@@ -234,7 +249,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
         )
@@ -255,7 +274,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
             default_execution_mode="normal",
@@ -277,7 +300,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
             default_execution_mode="normal",
@@ -300,7 +327,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
             default_execution_mode="plan",
@@ -322,7 +353,11 @@ class TestConfigManagerExecutionMode:
                 "anthropic": ProviderConfig(
                     auth_token="test",
                     base_url="https://api.test.com",
-                    models={"small": "test-s", "mid": "test-m", "big": "test-b"},
+                    models={
+                        "small": "test-s",
+                        "mid": "test-m",
+                        "big": "test-b",
+                    },
                 )
             },
         )
@@ -356,7 +391,8 @@ class TestExecutionModeIntegration:
         for tool in plan_tools:
             # Need to check the original schema with risk_level
             tool_with_risk = [
-                t for t in registry.get_schemas(read_only=True, include_risk_level=True)
+                t
+                for t in registry.get_schemas(read_only=True, include_risk_level=True)
                 if t["name"] == tool["name"]
             ][0]
             assert tool_with_risk["risk_level"] == RiskLevel.SAFE.value

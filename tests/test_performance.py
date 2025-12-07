@@ -8,7 +8,6 @@ import importlib
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import pytest
 
@@ -40,11 +39,11 @@ class TestStartupPerformance:
         min_time = min(times)
         max_time = max(times)
 
-        print(f"\n--help startup time:")
+        print("\n--help startup time:")
         print(f"  Average: {avg_time:.1f}ms")
         print(f"  Min: {min_time:.1f}ms")
         print(f"  Max: {max_time:.1f}ms")
-        print(f"  Target: <200ms (ideal: <100ms)")
+        print("  Target: <200ms (ideal: <100ms)")
 
         # We'll allow up to 2000ms for now since we know performance needs work
         # TODO: Lower this to 200ms after optimization
@@ -91,7 +90,7 @@ class TestImportPerformance:
         elapsed = (time.perf_counter() - start) * 1000
 
         print(f"\nCLI module import time: {elapsed:.1f}ms")
-        print(f"Target: <100ms for core modules")
+        print("Target: <100ms for core modules")
 
         # Allow up to 1500ms for now
         assert elapsed < 1500, f"Import time {elapsed:.1f}ms too slow"
@@ -130,7 +129,8 @@ class TestImportPerformance:
 
         print("\nIndividual module import times:")
         for module, time_ms in sorted(
-            import_times.items(), key=lambda x: x[1] if isinstance(x[1], float) else 0
+            import_times.items(),
+            key=lambda x: x[1] if isinstance(x[1], float) else 0,
         ):
             if isinstance(time_ms, float):
                 print(f"  {module}: {time_ms:.1f}ms")
@@ -163,15 +163,14 @@ class TestMemoryUsage:
         current_mb = current / 1024 / 1024
         peak_mb = peak / 1024 / 1024
 
-        print(f"\nMemory usage after imports:")
+        print("\nMemory usage after imports:")
         print(f"  Current: {current_mb:.1f} MB")
         print(f"  Peak: {peak_mb:.1f} MB")
-        print(f"  Target: <100 MB baseline")
+        print("  Target: <100 MB baseline")
 
         # Allow up to 150MB for now (includes test overhead)
         assert current_mb < 150, (
-            f"Memory usage {current_mb:.1f}MB exceeds target. "
-            f"Target is <100MB."
+            f"Memory usage {current_mb:.1f}MB exceeds target. " f"Target is <100MB."
         )
 
 
@@ -199,9 +198,7 @@ class TestProviderLoadingPerformance:
         )
 
         if anthropic_loaded:
-            print(
-                "\n⚠️  Anthropic SDK loaded at import time (should be lazy loaded)"
-            )
+            print("\n⚠️  Anthropic SDK loaded at import time (should be lazy loaded)")
             print("   This adds ~500ms to startup time unnecessarily")
         else:
             print("\n✓ Anthropic SDK not loaded at import (good lazy loading)")
@@ -243,6 +240,9 @@ class TestProviderLoadingPerformance:
 class TestPerformanceBenchmarks:
     """Benchmark tests for tracking performance over time."""
 
+    @pytest.mark.skip(
+        reason="pytest-benchmark not installed - enable manually for profiling"
+    )
     def test_full_startup_benchmark(self, benchmark):
         """Benchmark full CLI startup time using pytest-benchmark.
 

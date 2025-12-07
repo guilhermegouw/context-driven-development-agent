@@ -34,14 +34,16 @@ Available Commands:
         Display available commands and usage
 """
 
-from .base import BaseSlashCommand, CommandError
+from .base import BaseSlashCommand
+from .base import CommandError
 from .clear_command import ClearCommand
 from .exec_command import ExecCommand
 from .help_command import HelpCommand
 from .init_command import InitCommand
 from .new_command import NewCommand
 from .plan_command import PlanCommand
-from .router import SlashCommandRouter, get_router
+from .router import SlashCommandRouter
+from .router import get_router
 from .socrates_command import SocratesCommand
 
 

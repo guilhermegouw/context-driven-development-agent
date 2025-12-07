@@ -4,9 +4,14 @@ This module provides the abstract base class that all CDD agents
 (Socrates, Planner, Executor) inherit from.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
+from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Dict
+from typing import List
+
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -62,7 +67,7 @@ class BaseAgent(ABC):
         self.tool_registry = tool_registry
 
         # Agent state
-        self.conversation_history = []
+        self.conversation_history: List[Dict[str, str]] = []
         self._is_complete = False
 
         # Agent metadata (set by subclasses)

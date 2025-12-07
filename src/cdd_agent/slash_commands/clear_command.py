@@ -4,6 +4,7 @@ import logging
 
 from .base import BaseSlashCommand
 
+
 logger = logging.getLogger(__name__)
 
 

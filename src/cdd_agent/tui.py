@@ -3,17 +3,27 @@
 import os
 import threading
 import time
-from typing import Dict, Optional
+from typing import Dict
+from typing import Literal
+from typing import cast
 
 from rich.panel import Panel
 from rich.text import Text
-from textual import events, work
-from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual import events
+from textual import work
+from textual.app import App
+from textual.app import ComposeResult
+from textual.containers import Container
+from textual.containers import Horizontal
+from textual.containers import Vertical
+from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, Static, TextArea
+from textual.widgets import Button
+from textual.widgets import Label
+from textual.widgets import Static
+from textual.widgets import TextArea
 
 from . import __version__
 from .agent import Agent
@@ -22,6 +32,7 @@ from .session import ChatSession
 from .tools import RiskLevel
 from .utils.custom_markdown import LeftAlignedMarkdown
 from .utils.markdown_normalizer import normalize_markdown
+
 
 # Gold/yellow color scheme
 BRAND_COLOR = "#d4a574"  # Warm gold/tan color for consistency
@@ -74,7 +85,9 @@ TAGLINE = "Context captured once. AI understands forever."
 SUBTITLE = "Context-Driven Development"
 
 
-def create_welcome_message(provider: str, model: str, cwd: str, width: int = 80, execution_mode=None) -> str:
+def create_welcome_message(
+    provider: str, model: str, cwd: str, width: int = 80, execution_mode=None
+) -> str:
     """Create centered welcome message text.
 
     Args:
@@ -229,13 +242,13 @@ class MessageWidget(Static):
 
                 # Use Catppuccin syntax highlighting for code blocks
                 try:
-                    from catppuccin.extras.pygments import FrappeStyle
+                    from catppuccin.extras.pygments import FrappeStyle  # noqa: F401
 
                     content_widget = LeftAlignedMarkdown(
                         normalized_content,
-                        code_theme=FrappeStyle,
+                        code_theme="catppuccin-frappe",
                         inline_code_lexer="python",
-                        inline_code_theme=FrappeStyle,
+                        inline_code_theme="catppuccin-frappe",
                     )
                 except ImportError:
                     # Fallback to default if catppuccin not available
@@ -244,13 +257,13 @@ class MessageWidget(Static):
                 # Note: TUI uses Textual's Markdown widget which has its own styling
                 # Heading underlines are controlled by Textual's CSS, not Rich's Theme
             else:
-                content_widget = Text(self.content)
+                content_widget = Text(self.content)  # type: ignore[assignment]
 
             # Create panel
             panel = Panel(
                 content_widget,
                 title=title,
-                title_align=title_align,
+                title_align=cast(Literal["left", "center", "right"], title_align),
                 border_style=border_style,
             )
 
@@ -301,7 +314,6 @@ class StatusWidget(Static):
             duration: Seconds before auto-dismiss (default 2.5)
         """
         self._temp_event_id += 1
-        event_id = self._temp_event_id
 
         self.events.append(text)
         if len(self.events) > 3:
@@ -378,8 +390,8 @@ class CustomTextArea(TextArea):
         """Submit the text area content."""
         self.post_message(self.Submitted(self))
 
-    def _on_key(self, event: events.Key) -> None:
-        """Internal key handler - intercepts before default TextArea processing."""
+    def _on_key(self, event: events.Key) -> None:  # type: ignore[override]
+        """Handle key events before default TextArea processing."""
         # Check if we're in approval mode - if so, handle approval keys directly
         app = self.app
         if isinstance(app, CDDAgentTUI) and app._approval_pending:
@@ -430,14 +442,14 @@ class CustomTextArea(TextArea):
         if event.key == "shift+tab":
             event.prevent_default()
             event.stop()
-            app.action_toggle_execution_mode()
+            app.action_toggle_execution_mode()  # type: ignore[attr-defined]
             return
 
         # Ctrl+Y - Copy selected message(s) without borders
         if event.key == "ctrl+y":
             event.prevent_default()
             event.stop()
-            app.action_copy_selected()
+            app.action_copy_selected()  # type: ignore[attr-defined]
             return
 
         # Background process shortcuts (only when not in approval mode)
@@ -446,41 +458,49 @@ class CustomTextArea(TextArea):
             if event.key == "ctrl+b":
                 event.prevent_default()
                 event.stop()
-                app.action_show_background_processes()
+                app.action_show_background_processes()  # type: ignore[attr-defined]
                 return
-            
+
             # Ctrl+I - Interrupt background processes
             if event.key == "ctrl+i":
                 event.prevent_default()
                 event.stop()
-                app.action_interrupt_background_processes()
+                app.action_interrupt_background_processes()  # type: ignore[attr-defined]
                 return
-            
+
             # Ctrl+O - Show output of last background process
             if event.key == "ctrl+o":
                 event.prevent_default()
                 event.stop()
                 # Find the most recent background process and show its output
-                processes = app.background_executor.list_all_processes()
+                processes = app.background_executor.list_all_processes()  # type: ignore[attr-defined]
                 if processes:
                     # Get the most recent process (sorted by start time)
                     latest_process = max(processes, key=lambda p: p.start_time or 0)
                     from .tools import get_background_output
+
                     output = get_background_output(latest_process.process_id, lines=20)
-                    
+
                     chat_history = app.query_one("#chat-history", ChatHistory)
+                    # Break long f-string
+                    output_msg = (
+                        f"📄 **Output from {latest_process.process_id[:12]}...**\n\n"
+                        f"{output}"
+                    )
                     chat_history.add_message(
-                        f"📄 **Output from {latest_process.process_id[:12]}...**\n\n{output}",
+                        output_msg,
                         role="assistant",
                         is_markdown=True,
                     )
                     chat_history.scroll_end(animate=False)
                 else:
-                    app._add_background_status_message("ℹ No background processes found")
+                    app._add_background_status_message(  # type: ignore[attr-defined]
+                        "ℹ No background processes found"
+                    )
                 return
 
         # For all other keys, let TextArea handle them normally
-        super()._on_key(event)
+        super()._on_key(event)  # type: ignore[unused-coroutine]
 
 
 class ApprovalDialog(ModalScreen[bool]):
@@ -561,7 +581,7 @@ class ApprovalDialog(ModalScreen[bool]):
         tool_name: str,
         args: dict,
         risk_level: RiskLevel,
-        warning: Optional[str] = None,
+        warning: str | None = None,
     ):
         """Initialize approval dialog.
 
@@ -768,7 +788,7 @@ class CDDAgentTUI(App):
         agent: Agent,
         provider: str,
         model: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         execution_mode=None,
     ):
         """Initialize TUI app.
@@ -788,7 +808,7 @@ class CDDAgentTUI(App):
         self.system_prompt = system_prompt
         self.cwd = os.getcwd()
         self.execution_mode = execution_mode or ExecutionMode.NORMAL
-        self._approval_result: Optional[bool] = None
+        self._approval_result: bool | None = None
         self._approval_event = threading.Event()
         self._approval_pending = False
         self._approval_selected_option = 1  # Default to Allow (1)
@@ -871,7 +891,7 @@ class CDDAgentTUI(App):
         tool_name: str,
         args: dict,
         risk_level: RiskLevel,
-        warning: Optional[str],
+        warning: str | None,
     ) -> None:
         """Show approval request in status widget (runs on main thread).
 
@@ -945,10 +965,14 @@ class CDDAgentTUI(App):
 
             mode_icon = self.execution_mode.get_icon()
             if self.execution_mode == ExecutionMode.PLAN:
-                mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Shift+Tab to cycle modes"
+                mode_text = (
+                    f"{mode_icon} PLAN MODE (Read-Only) - Shift+Tab to cycle modes"
+                )
                 mode_style = "#d4a574"  # Gold for Plan Mode
             elif self.execution_mode == ExecutionMode.YOLO:
-                mode_text = f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
+                mode_text = (
+                    f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
+                )
                 mode_style = "bold #ff6b6b"  # Red for YOLO Mode
             else:
                 mode_text = f"{mode_icon} NORMAL MODE - Shift+Tab to cycle modes"
@@ -960,14 +984,17 @@ class CDDAgentTUI(App):
             )
 
     def on_mount(self) -> None:
-        """Called when app is mounted."""
-        from .utils.execution_state import ExecutionMode
+        """Mount and initialize the application."""
 
         # Add welcome message to chat with terminal width
         chat_history = self.query_one("#chat-history", ChatHistory)
         terminal_width = self.size.width - 4  # Account for padding
         welcome_text = create_welcome_message(
-            self.provider, self.model, self.cwd, terminal_width, self.execution_mode
+            self.provider,
+            self.model,
+            self.cwd,
+            terminal_width,
+            self.execution_mode,
         )
         chat_history.add_message(welcome_text, role="system", is_markdown=False)
 
@@ -989,140 +1016,145 @@ class CDDAgentTUI(App):
             status_widget.update_display()
 
     # ============================================================================
-# Background Process Management
-# ============================================================================
+    # Background Process Management
+    # ============================================================================
 
     def _start_background_monitoring(self) -> None:
         """Start background process monitoring thread."""
         if self.background_monitor_active:
             return
-        
+
         self.background_monitor_active = True
         self._background_stop_event.clear()
-        
+
         # Start monitoring thread
         monitor_thread = threading.Thread(
             target=self._monitor_background_processes,
             daemon=True,
-            name="BackgroundMonitor"
+            name="BackgroundMonitor",
         )
         monitor_thread.start()
-    
+
     def _monitor_background_processes(self) -> None:
         """Monitor background processes and update UI.
-        
+
         This runs in a separate thread and monitors background processes
         for completion, output, and status changes.
         """
-        while self.background_monitor_active and not self._background_stop_event.is_set():
+        while (
+            self.background_monitor_active and not self._background_stop_event.is_set()
+        ):
             try:
                 # Check all known processes
                 processes_to_remove = []
-                
-                for process_id, process_info in self.background_processes.items():
+
+                for (
+                    process_id,
+                    process_info,
+                ) in self.background_processes.items():
                     process = self.background_executor.get_process(process_id)
-                    
+
                     if process is None:
                         # Process no longer exists
                         processes_to_remove.append(process_id)
                         continue
-                    
+
                     # Check if process status has changed
                     current_status = process.status.value
-                    last_status = process_info.get('last_status')
-                    
+                    last_status = process_info.get("last_status")
+
                     if current_status != last_status:
                         # Status changed, update UI
-                        process_info['last_status'] = current_status
-                        
-                        if process.status.name == 'COMPLETED':
+                        process_info["last_status"] = current_status
+
+                        if process.status.name == "COMPLETED":
                             self._notify_process_completed(process_id, process)
-                        elif process.status.name == 'FAILED':
+                        elif process.status.name == "FAILED":
                             self._notify_process_failed(process_id, process)
-                        elif process.status.name == 'INTERRUPTED':
+                        elif process.status.name == "INTERRUPTED":
                             self._notify_process_interrupted(process_id, process)
-                    
+
                     # Check for new output (only for running processes)
                     if process.is_running():
-                        last_line_count = process_info.get('last_line_count', 0)
+                        last_line_count = process_info.get("last_line_count", 0)
                         current_line_count = len(process.output_lines)
-                        
+
                         if current_line_count > last_line_count:
                             # New output available
                             new_lines = process.output_lines[last_line_count:]
                             self._stream_process_output(process_id, process, new_lines)
-                            process_info['last_line_count'] = current_line_count
-                
+                            process_info["last_line_count"] = current_line_count
+
                 # Remove completed/failed processes from tracking after a delay
                 for process_id in processes_to_remove:
                     del self.background_processes[process_id]
-                
+
                 # Sleep before next check
                 time.sleep(0.5)  # Check every 500ms
-                
+
             except Exception as e:
                 # Log error but continue monitoring
                 try:
                     self.call_from_thread(
                         self._add_background_status_message,
-                        f"⚠ Background monitor error: {str(e)}"
+                        f"⚠ Background monitor error: {str(e)}",
                     )
-                except:
-                    pass  # Avoid crashing the monitor
+                except Exception:
+                    pass  # Avoid crashing the background monitor
                 time.sleep(1.0)
-    
+
     def _register_background_process(self, process_id: str, command: str) -> None:
         """Register a new background process for monitoring.
-        
+
         Args:
             process_id: Background process ID
             command: Command being executed
         """
         self.background_processes[process_id] = {
-            'command': command,
-            'start_time': time.time(),
-            'last_status': None,
-            'last_line_count': 0,
-            'message_widget': None  # Will store the message widget
+            "command": command,
+            "start_time": time.time(),
+            "last_status": None,
+            "last_line_count": 0,
+            "message_widget": None,  # Will store the message widget
         }
-        
+
         # Show initial status
         self._add_background_status_message(
             f"🚀 Background process started: {process_id[:12]}..."
         )
-    
+
     def _notify_process_completed(self, process_id: str, process) -> None:
         """Notify user that a process completed successfully."""
         runtime = process.get_runtime()
         lines = len(process.output_lines)
-        
+
         self._add_background_status_message(
             f"✅ Background process completed: {process_id[:12]}... "
             f"(Runtime: {runtime:.1f}s, Output: {lines} lines)"
         )
-    
+
     def _notify_process_failed(self, process_id: str, process) -> None:
         """Notify user that a process failed."""
         runtime = process.get_runtime()
         exit_code = process.exit_code or -1
-        
+
         self._add_background_status_message(
             f"❌ Background process failed: {process_id[:12]}... "
             f"(Exit code: {exit_code}, Runtime: {runtime:.1f}s)"
         )
-    
+
     def _notify_process_interrupted(self, process_id: str, process) -> None:
         """Notify user that a process was interrupted."""
         runtime = process.get_runtime()
-        
+
         self._add_background_status_message(
             f"⏹ Background process interrupted: {process_id[:12]}... "
             f"(Runtime: {runtime:.1f}s)"
         )
-    
+
     def _stream_process_output(self, process_id: str, process, new_lines: list) -> None:
         """Stream new output lines to the chat.
-        
+
         Args:
             process_id: Background process ID
             process: BackgroundProcess instance
@@ -1131,47 +1163,49 @@ class CDDAgentTUI(App):
         process_info = self.background_processes.get(process_id)
         if not process_info:
             return
-        
+
         # Create or update the streaming message widget
         chat_history = self.query_one("#chat-history", ChatHistory)
-        
-        if process_info['message_widget'] is None:
+
+        if process_info["message_widget"] is None:
             # Create new streaming message
-            from rich.syntax import Syntax
-            
+
             header = f"🔧 **Background Output: {process_id[:12]}...**\n"
-            header += f"Command: `{process.command[:80]}{'...' if len(process.command) > 80 else ''}`\n\n"
-            
+            # Break long f-string with ternary
+            truncated_command = process.command[:80] + (
+                "..." if len(process.command) > 80 else ""
+            )
+            header += f"Command: `{truncated_command}`\n\n"
+
             message_widget = MessageWidget(
                 header,
                 role="assistant",
                 is_markdown=True,
             )
-            process_info['message_widget'] = message_widget
-            
-            self.call_from_thread(chat_history.mount, message_widget)
-            self.call_from_thread(chat_history.scroll_end, animate=False)
-        
+            process_info["message_widget"] = message_widget
+
+            self.call_from_thread(chat_history.mount, message_widget)  # type: ignore[arg-type]
+            self.call_from_thread(chat_history.scroll_end, animate=False)  # type: ignore[arg-type]
+
         # Append new output to the message
         if new_lines:
-            current_content = process_info['message_widget'].content or ""
+            current_content = process_info["message_widget"].content or ""
             new_output = "\n".join(new_lines)
 
             # Use code block formatting for output
             updated_content = current_content + f"\n```bash\n{new_output}\n```"
 
             self.call_from_thread(
-                process_info['message_widget'].update_content,
-                updated_content
+                process_info["message_widget"].update_content, updated_content
             )
             self.call_from_thread(chat_history.scroll_end, animate=False)
 
             # Update last_line_count
-            process_info['last_line_count'] = len(process.output_lines)
-    
+            process_info["last_line_count"] = len(process.output_lines)
+
     def _add_background_status_message(self, message: str) -> None:
         """Add a background process status message to the chat.
-        
+
         Args:
             message: Status message to display
         """
@@ -1182,15 +1216,15 @@ class CDDAgentTUI(App):
             role="system",
             is_markdown=False,
         )
-    
+
     def _stop_background_monitoring(self) -> None:
         """Stop background process monitoring."""
         self.background_monitor_active = False
         self._background_stop_event.set()
 
-# ============================================================================
-# Approval System (Existing)
-# ============================================================================
+    # ============================================================================
+    # Approval System (Existing)
+    # ============================================================================
 
     def action_approval_navigate_left(self) -> None:
         """Navigate approval selector left."""
@@ -1365,7 +1399,9 @@ class CDDAgentTUI(App):
                 logger.debug(f"Calling router.execute for: {command}")
                 # Execute the command through the router
                 result = await self.chat_session.slash_router.execute(command)
-                logger.debug(f"Router returned result: {result[:100] if result else None}...")
+                logger.debug(
+                    f"Router returned result: {result[:100] if result else None}..."
+                )
                 return result, None
             except Exception as e:
                 logger.error(f"Error executing command: {e}", exc_info=True)
@@ -1378,7 +1414,9 @@ class CDDAgentTUI(App):
             asyncio.set_event_loop(loop)
             result, error = loop.run_until_complete(execute_command())
             loop.close()
-            logger.debug(f"Event loop completed. Result: {bool(result)}, Error: {bool(error)}")
+            logger.debug(
+                f"Event loop completed. Result: {bool(result)}, Error: {bool(error)}"
+            )
 
             if error:
                 logger.error(f"Command failed with error: {error}")
@@ -1390,7 +1428,7 @@ class CDDAgentTUI(App):
                     is_markdown=False,
                 )
             elif result:
-                logger.info(f"Command succeeded, displaying result")
+                logger.info("Command succeeded, displaying result")
                 # Display the result on the main thread
                 self.call_from_thread(
                     chat_history.add_message,
@@ -1542,6 +1580,7 @@ class CDDAgentTUI(App):
 
                 elif event_type == "tool_use":
                     import random
+
                     tool_name = event.get("name", "unknown")
 
                     # Check if this is a background tool
@@ -1550,7 +1589,7 @@ class CDDAgentTUI(App):
                         command = tool_args.get("command", "unknown")
                         self.call_from_thread(
                             status_widget.add_event,
-                            f"🚀 Starting background: {tool_name}"
+                            f"🚀 Starting background: {tool_name}",
                         )
                     else:
                         # Pick a random fun action verb
@@ -1562,30 +1601,34 @@ class CDDAgentTUI(App):
                 elif event_type == "tool_result":
                     tool_name = event.get("name", "unknown")
                     is_error = event.get("is_error", False)
-                    
+
                     # Handle background tool results
                     if tool_name == "run_bash_background":
                         result = event.get("content", "")
-                        
+
                         # Extract process ID from the result
                         import re
-                        match = re.search(r'Background process started: (\w+-\w+-\w+-\w+-\w+)', result)
+
+                        match = re.search(
+                            r"Background process started: (\w+-\w+-\w+-\w+-\w+)",
+                            result,
+                        )
                         if match:
                             process_id = match.group(1)
                             tool_args = event.get("input", {})
                             command = tool_args.get("command", "unknown")
-                            
+
                             # Register process for monitoring
                             self.call_from_thread(
                                 self._register_background_process,
                                 process_id,
-                                command
+                                command,
                             )
                         else:
                             # Error starting background process
                             self.call_from_thread(
                                 status_widget.add_event,
-                                f"✗ Failed to start background process"
+                                "✗ Failed to start background process",
                             )
                     else:
                         # Regular tool result
@@ -1593,7 +1636,7 @@ class CDDAgentTUI(App):
                             msg = f"✗ Error in {tool_name}"
                         else:
                             msg = f"✓ {tool_name} completed"
-                        
+
                         self.call_from_thread(status_widget.add_event, msg)
 
                 elif event_type == "text":
@@ -1609,8 +1652,8 @@ class CDDAgentTUI(App):
                             role="assistant",
                             is_markdown=True,
                         )
-                        self.call_from_thread(chat_history.mount, streaming_message)
-                        self.call_from_thread(chat_history.scroll_end, animate=False)
+                        self.call_from_thread(chat_history.mount, streaming_message)  # type: ignore[arg-type]
+                        self.call_from_thread(chat_history.scroll_end, animate=False)  # type: ignore[arg-type]
 
                     # Accumulate text
                     chunk = event.get("content")
@@ -1619,7 +1662,9 @@ class CDDAgentTUI(App):
 
                         # Update the message widget with accumulated text
                         accumulated = "".join(response_text)
-                        self.call_from_thread(streaming_message.update_content, accumulated)
+                        self.call_from_thread(
+                            streaming_message.update_content, accumulated
+                        )
                         self.call_from_thread(chat_history.scroll_end, animate=False)
 
                 elif event_type == "error":
@@ -1679,7 +1724,8 @@ class CDDAgentTUI(App):
         try:
             chat_history = self.query_one("#chat-history", ChatHistory)
             selected_messages = [
-                widget for widget in chat_history.query(MessageWidget)
+                widget
+                for widget in chat_history.query(MessageWidget)
                 if widget.is_selected
             ]
 
@@ -1716,12 +1762,15 @@ class CDDAgentTUI(App):
 
         except Exception as e:
             status_widget = self.query_one("#status-widget", StatusWidget)
-            status_widget.add_temporary_event(f"[red]✗ Copy failed: {e}[/red]", duration=4.0)
+            status_widget.add_temporary_event(
+                f"[red]✗ Copy failed: {e}[/red]", duration=4.0
+            )
 
     def action_toggle_execution_mode(self) -> None:
         """Cycle execution mode: NORMAL → PLAN → YOLO → NORMAL (Shift+Tab)."""
-        from .utils.execution_state import ExecutionMode
         from rich.text import Text
+
+        from .utils.execution_state import ExecutionMode
 
         # Cycle to next mode
         self.execution_mode = self.execution_mode.get_next_mode()
@@ -1737,8 +1786,12 @@ class CDDAgentTUI(App):
             mode_text = f"{mode_icon} PLAN MODE (Read-Only) - Shift+Tab to cycle modes"
             mode_indicator.update(Text.from_markup(f"[#d4a574]{mode_text}[/#d4a574]"))
         elif self.execution_mode == ExecutionMode.YOLO:
-            mode_text = f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
-            mode_indicator.update(Text.from_markup(f"[bold #ff6b6b]{mode_text}[/bold #ff6b6b]"))
+            mode_text = (
+                f"{mode_icon} YOLO MODE (Auto-Approve) - Shift+Tab to cycle modes"
+            )
+            mode_indicator.update(
+                Text.from_markup(f"[bold #ff6b6b]{mode_text}[/bold #ff6b6b]")
+            )
         else:
             mode_text = f"{mode_icon} NORMAL MODE - Shift+Tab to cycle modes"
             mode_indicator.update(Text.from_markup(f"[dim]{mode_text}[/dim]"))
@@ -1754,17 +1807,17 @@ class CDDAgentTUI(App):
     def action_show_background_processes(self) -> None:
         """Show background processes (Ctrl+B)."""
         processes = self.background_executor.list_all_processes()
-        
+
         if not processes:
             self._add_background_status_message("📋 No background processes running")
             return
-        
+
         # Format process list
         status_lines = [f"📋 Background Processes ({len(processes)} total):"]
-        
+
         for process in processes:
             runtime = process.get_runtime()
-            
+
             # Status emoji
             if process.is_running():
                 status_emoji = "🟢"
@@ -1776,20 +1829,24 @@ class CDDAgentTUI(App):
                 status_emoji = "⏹"
             else:
                 status_emoji = "❓"
-            
+
             status_lines.append(
                 f"{status_emoji} {process.process_id[:12]}... "
                 f"({process.status.value}) - {runtime:.1f}s - "
                 f"{len(process.output_lines)} lines"
             )
-            status_lines.append(f"   Command: {process.command[:60]}{'...' if len(process.command) > 60 else ''}")
-        
+            status_lines.append(
+                # Break long f-string
+                f"   Command: {process.command[:60]}"
+                f"{'...' if len(process.command) > 60 else ''}"
+            )
+
         # Add management hints
         running_count = sum(1 for p in processes if p.is_running())
         if running_count > 0:
             status_lines.append(f"\n💡 {running_count} process(es) still running")
             status_lines.append("💡 Use Ctrl+I to interrupt, Ctrl+O to show output")
-        
+
         # Display as a system message
         chat_history = self.query_one("#chat-history", ChatHistory)
         chat_history.add_message(
@@ -1798,53 +1855,53 @@ class CDDAgentTUI(App):
             is_markdown=False,
         )
         chat_history.scroll_end(animate=False)
-    
+
     def action_interrupt_background_processes(self) -> None:
         """Interrupt all running background processes (Ctrl+I)."""
         running_processes = self.background_executor.list_active_processes()
-        
+
         if not running_processes:
-            self._add_background_status_message("ℹ No running background processes to interrupt")
+            self._add_background_status_message(
+                "ℹ No running background processes to interrupt"
+            )
             return
-        
+
         # Interrupt all running processes
         interrupted_count = 0
         for process in running_processes:
             if self.background_executor.interrupt_process(process.process_id):
                 interrupted_count += 1
-        
+
         self._add_background_status_message(
             f"⏹ Sent interrupt signal to {interrupted_count} background process(es)"
         )
-    
+
     def action_help(self) -> None:
         """Show help (F1)."""
         self.handle_command("/help")
-    
+
     def on_exit(self) -> None:
         """Called when the app is about to exit."""
         # Stop background monitoring
         self._stop_background_monitoring()
-        
+
         # Interrupt all running background processes
         running_processes = self.background_executor.list_active_processes()
         if running_processes:
             for process in running_processes:
                 self.background_executor.interrupt_process(process.process_id)
-            
+
             # Give them a moment to clean up
             import time
+
             time.sleep(0.5)
-        
-        # Call parent exit method
-        super().on_exit()
 
 
 def run_tui(
     agent: Agent,
     provider: str,
     model: str,
-    system_prompt: Optional[str] = None,
+    system_prompt: str | None = None,
     approval_mode=None,
     execution_mode=None,
 ):
@@ -1858,7 +1915,6 @@ def run_tui(
         approval_mode: Optional approval mode (if set, creates ApprovalManager)
         execution_mode: Optional execution mode (NORMAL or PLAN)
     """
-    from .utils.execution_state import ExecutionMode
 
     # Use agent's execution mode if not provided
     if execution_mode is None:

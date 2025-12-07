@@ -12,10 +12,12 @@ Optimized for weaker LLMs (GLM 4.6, Minimax M2) with:
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List
+from typing import TYPE_CHECKING
+from typing import Any
 
 from ..session.base_agent import BaseAgent
 from ..utils.filtered_tools import ReadOnlyToolRegistry
+
 
 if TYPE_CHECKING:
     from ..session.chat_session import ChatSession
@@ -24,15 +26,15 @@ logger = logging.getLogger(__name__)
 
 # Constants for persona maintenance
 MAX_HISTORY_MESSAGES = 14  # Compact conversation when exceeds this (7 exchanges)
-REMINDER_INTERVAL = 5      # Inject persona reminder every N turns
+REMINDER_INTERVAL = 5  # Inject persona reminder every N turns
 
 # Conversation phases for requirements gathering
 PHASES = [
     "problem_discovery",  # What's the problem?
-    "user_analysis",      # Who has this problem?
-    "requirements",       # What should the solution do?
-    "edge_cases",         # What happens when things go wrong?
-    "wrap_up"             # Ready to show summary
+    "user_analysis",  # Who has this problem?
+    "requirements",  # What should the solution do?
+    "edge_cases",  # What happens when things go wrong?
+    "wrap_up",  # Ready to show summary
 ]
 
 
@@ -106,23 +108,15 @@ class SocratesAgent(BaseAgent):
         # This makes state explicit instead of relying on model memory
         self.gathered_info: dict = {
             "phase": "problem_discovery",  # Current conversation phase
-            "problem": {
-                "description": "",
-                "examples": [],
-                "impact": ""
-            },
-            "users": {
-                "who": [],
-                "context": "",
-                "workflow": ""
-            },
+            "problem": {"description": "", "examples": [], "impact": ""},
+            "users": {"who": [], "context": "", "workflow": ""},
             "requirements": {
                 "must_have": [],
                 "success_criteria": [],
-                "constraints": []
+                "constraints": [],
             },
             "edge_cases": [],
-            "gaps": []  # What we still need to ask about
+            "gaps": [],  # What we still need to ask about
         }
 
         # Conversation tracking
@@ -151,7 +145,8 @@ class SocratesAgent(BaseAgent):
             logger.info(f"Detected document type: {self.document_type}")
 
             # Step 3: Read target file
-            self.spec_content = self._load_document_file()
+            spec_content = self._load_document_file()
+            self.spec_content = spec_content if spec_content else ""
             logger.info(f"Loaded document file: {self.target_path}")
 
             # Step 4: Determine ticket type from path or content (for tickets)
@@ -163,7 +158,7 @@ class SocratesAgent(BaseAgent):
             self.template_content = self._load_template()
             logger.info(f"Loaded template for {self.document_type}")
 
-            # Step 5: Synthesize context and present to user
+            # Step 6: Synthesize context and present to user
             greeting = self._synthesize_context()
             logger.info("Generated context synthesis greeting")
 
@@ -203,7 +198,10 @@ class SocratesAgent(BaseAgent):
         self.conversation_history.append({"role": "user", "content": user_input})
         self.turn_count += 1
         logger.debug(
-            f"Conversation history: {len(self.conversation_history)} messages, turn {self.turn_count}"
+            (
+                f"Conversation history: {len(self.conversation_history)} "
+                f"messages, turn {self.turn_count}"
+            )
         )
 
         # Step 2: Extract information from user input (before LLM call)
@@ -228,7 +226,8 @@ class SocratesAgent(BaseAgent):
                 logger.info("Socrates is showing final summary")
                 self.shown_summary = True
 
-            # Step 8: Check if user approved summary (ready to generate and hand off to Writer)
+            # Step 8: Check if user approved summary
+            # Ready to generate and hand off to Writer
             if self.shown_summary and self._user_approved(user_input):
                 logger.info("User approved summary, generating content for Writer")
                 await self._generate_document_content()
@@ -299,8 +298,10 @@ class SocratesAgent(BaseAgent):
                 logger.info(f"Model: {model}")
                 logger.info(f"Number of messages: {len(messages)}")
                 for i, msg in enumerate(messages):
-                    content_preview = msg.get('content', '')[:200]
-                    logger.info(f"Message {i} [{msg.get('role')}]: {content_preview}...")
+                    content_preview = msg.get("content", "")[:200]
+                    logger.info(
+                        f"Message {i} [{msg.get('role')}]: {content_preview}..."
+                    )
                 logger.info("-" * 60)
                 logger.info("IMPORTANT: Calling LLM WITHOUT tools parameter")
                 logger.info("=" * 60)
@@ -316,22 +317,28 @@ class SocratesAgent(BaseAgent):
 
                 # === LOG RESPONSE TYPE ===
                 logger.info(f"Response type: {type(response)}")
-                logger.info(f"Response content blocks: {len(response.content) if hasattr(response, 'content') else 'N/A'}")
-                for i, block in enumerate(response.content if hasattr(response, 'content') else []):
+                content = getattr(response, "content", [])
+                content_len = len(content) if content is not None else 0
+                logger.info(f"Response content blocks: {content_len}")
+
+                # Safe block iteration
+                text_parts = []
+                for i, block in enumerate(content or []):
                     block_type = type(block).__name__
                     logger.info(f"Block {i} type: {block_type}")
-                    if hasattr(block, 'type'):
+
+                    if hasattr(block, "type"):
                         logger.info(f"Block {i} .type: {block.type}")
 
-                # Extract text response
-                text_parts = []
-                for block in response.content:
+                    # Safe text extraction
                     if hasattr(block, "text"):
                         text_parts.append(block.text)
                     elif isinstance(block, dict) and "text" in block:
                         text_parts.append(block["text"])
 
-                result = "\n".join(text_parts).strip()
+                # Handle empty content case
+                result = "\n".join(text_parts).strip() if text_parts else ""
+
                 logger.info(f"Final response length: {len(result)} chars")
                 logger.info(f"Final response preview: {result[:300]}...")
                 logger.info("=" * 60)
@@ -360,13 +367,20 @@ class SocratesAgent(BaseAgent):
         gaps = self._format_gaps()
         phase_guidance = self._get_phase_guidance(phase)
 
-        return f'''You are **Socrates**, a requirements gathering specialist who helps developers think clearly about what they want to build.
+        intro = (
+            "You are **Socrates**, a requirements gathering specialist who "
+            "helps developers think clearly about what they want to build."
+        )
+        return f"""{intro}
 
 ## CORE PRINCIPLES
 
-1. **Be a thinking partner, not an interrogator** - Help users articulate their ideas, don't grill them
-2. **Move forward, not in circles** - Once something is understood, progress to the next topic
-3. **Accept implicit answers** - If the user's response implies an answer, don't ask for explicit confirmation
+1. **Be a thinking partner, not an interrogator** - Help users articulate
+   their ideas, don't grill them
+2. **Move forward, not in circles** - Once something is understood, progress
+   to the next topic
+3. **Accept implicit answers** - If the user's response implies an answer,
+   don't ask for explicit confirmation
 4. **Know when to stop** - A simple feature doesn't need 20 questions
 
 ## STRICT RULES
@@ -408,27 +422,34 @@ class SocratesAgent(BaseAgent):
 ## EXAMPLES OF GOOD vs BAD PROGRESSION
 
 ### ✅ GOOD - Moving Forward:
-User: "I want a /clear command to reset chat history so models don't get confused"
+User: "I want a /clear command to reset chat history so models don't get
+confused"
 
-✅ **Clear:** You want a /clear command that resets the chat history. The purpose is to prevent model confusion when context gets too large.
+✅ **Clear:** You want a /clear command that resets the chat history.
+The purpose is to prevent model confusion when context gets too large.
 
-❓ Who will use this command - is it for all users or primarily developers during long sessions?
+❓ Who will use this command - is it for all users or primarily developers
+during long sessions?
 
 ### ❌ BAD - Redundant Drilling:
-User: "I want a /clear command to reset chat history so models don't get confused"
+User: "I want a /clear command to reset chat history so models don't get
+confused"
 
 ✅ **Clear:** You want a /clear command.
 
 ❓ What specific problem does model confusion cause?
 
-❌ This is redundant! The user already said why - to prevent confusion. Don't ask them to re-explain.
+❌ This is redundant! The user already said why - to prevent confusion.
+Don't ask them to re-explain.
 
 ### ✅ GOOD - Accepting Implicit Answers:
 User: "Right now users have to close the terminal and restart"
 
-✅ **Clear:** The current workaround requires closing and restarting the terminal, which adds friction.
+✅ **Clear:** The current workaround requires closing and restarting the
+terminal, which adds friction.
 
-❓ Should the /clear command reset everything, or should some context be preserved (like settings or user preferences)?
+❓ Should the /clear command reset everything, or should some context be
+preserved (like settings or user preferences)?
 
 ### ❌ BAD - Asking the Obvious:
 User: "Right now users have to close the terminal and restart"
@@ -472,8 +493,9 @@ Read the conversation carefully. Ask a question that:
 2. Moves the conversation FORWARD to new ground
 3. Is genuinely useful for understanding the feature
 
-If you've covered the basics for a simple feature, show the summary instead.
-'''
+If you've covered the basics for a simple feature,
+show the summary instead.
+"""
 
     def _fallback_response(self, user_input: str) -> str:
         """Generate fallback response if LLM unavailable.
@@ -496,13 +518,21 @@ If you've covered the basics for a simple feature, show the summary instead.
             Mission-specific prompt text
         """
         if self.document_type == "markdown":
-            return f"""Help developers create comprehensive markdown documents through intelligent conversation. You:
+            intro_text = (
+                "Help developers create comprehensive markdown documents "
+                "through intelligent conversation. You:"
+            )
+            return f"""{intro_text}
 
-1. **Guide Discovery**: Use questions to help developers articulate their thinking
-2. **Challenge Vagueness**: When answers are incomplete, acknowledge clarity and target gaps
+1. **Guide Discovery**: Use questions to help developers articulate their
+   thinking
+2. **Challenge Vagueness**: When answers are incomplete, acknowledge clarity
+   and target gaps
 3. **Stay in Scope**: Focus on clarifying the content of THIS document only
-4. **Synthesize**: Help organize scattered thoughts into structured documentation
-5. **Show Before Saving**: When complete, show full summary and get approval before saving
+4. **Synthesize**: Help organize scattered thoughts into structured
+   documentation
+5. **Show Before Saving**: When complete, show full summary and get approval
+   before saving
 
 For CDD.md files, focus on:
 - Project purpose and scope
@@ -512,13 +542,22 @@ For CDD.md files, focus on:
 
 For other markdown documents, adapt to the specific document type."""
         else:
-            return f"""Help developers create comprehensive {self.ticket_type} specifications through intelligent conversation. You:
+            intro = (
+                f"Help developers create comprehensive {self.ticket_type} "
+                "specifications through intelligent conversation. You:"
+            )
+            return f"""{intro}
 
-1. **Guide Discovery**: Use questions to help developers articulate their thinking
-2. **Challenge Vagueness**: When answers are incomplete, acknowledge clarity and target gaps
-3. **Stay in Scope**: Focus on requirements for THIS ticket only - not implementation or other features
-4. **Synthesize**: Help organize scattered thoughts into structured documentation
-5. **Show Before Saving**: When complete, show full summary and get approval before saving"""
+1. **Guide Discovery**: Use questions to help developers articulate their
+   thinking
+2. **Challenge Vagueness**: When answers are incomplete, acknowledge clarity
+   and target gaps
+3. **Stay in Scope**: Focus on requirements for THIS ticket only - not
+   implementation or other features
+4. **Synthesize**: Help organize scattered thoughts into structured
+   documentation
+5. **Show Before Saving**: When complete, show full summary and get approval
+   before saving"""
 
     def _get_scope_guidance(self) -> str:
         """Get scope guidance based on document type.
@@ -527,8 +566,16 @@ For other markdown documents, adapt to the specific document type."""
             Scope-specific guidance text
         """
         if self.document_type == "markdown":
-            return f"""**Your job:** Help create comprehensive documentation for THIS markdown file.
-**Not your job:** Solve implementation problems or discuss unrelated features.
+            job = (
+                "**Your job:** Help create comprehensive documentation for "
+                "THIS markdown file."
+            )
+            not_job = (
+                "**Not your job:** Solve implementation problems or discuss "
+                "unrelated features."
+            )
+            return f"""{job}
+{not_job}
 
 ### Hard Boundaries
 
@@ -564,12 +611,20 @@ The implementation plan will cover specific technologies and approaches."
 **Example - Other Documents:**
 User: "We should also create an API documentation guide"
 
-✅ Good: "That's a separate document. Let's focus on making this CDD.md complete first.
-I can note API documentation as a related document to create later."
+✅ Good: "That's a separate document. Let's focus on making this CDD.md
+complete first. I can note API documentation as a related document to create
+later."
 """
         else:
-            return """**Your job:** Help create a complete SPECIFICATION for THIS ticket.
-**Not your job:** Solve implementation, design architecture, or discuss other features.
+            job = (
+                "**Your job:** Help create a complete SPECIFICATION for THIS " "ticket."
+            )
+            not_job = (
+                "**Not your job:** Solve implementation, design architecture, "
+                "or discuss other features."
+            )
+            return f"""{job}
+{not_job}
 """
 
     def _determine_document_type(self) -> str:
@@ -727,10 +782,11 @@ I can note API documentation as a related document to create later."
         # Start the conversation with appropriate question based on document type
         if self.document_type == "markdown":
             greeting += (
-                "Now I can ask smart, targeted questions to help you think through "
-                f"this {doc_name.lower()} document.\n\n"
+                "Now I can ask smart, targeted questions to help you think "
+                f"through this {doc_name.lower()} document.\n\n"
                 "Ready? Let's start with the big picture:\n\n"
-                f"**What is the primary purpose of this {doc_type.lower()} and who is it for?**"
+                f"**What is the primary purpose of this {doc_type.lower()} "
+                "and who is it for?**"
             )
         else:
             greeting += (
@@ -773,22 +829,33 @@ I can note API documentation as a related document to create later."
         Returns:
             True if user approved
         """
-        approval_words = ["yes", "yeah", "yep", "looks good", "perfect", "save it"]
+        approval_words = [
+            "yes",
+            "yeah",
+            "yep",
+            "looks good",
+            "perfect",
+            "save it",
+        ]
         user_lower = user_input.lower().strip()
         return any(word in user_lower for word in approval_words)
 
     async def _generate_document_content(self) -> None:
         """Generate document content from conversation.
 
-        This asks the LLM to format the conversation into proper format (YAML or markdown).
-        The actual file write is handled by Writer agent via ChatSession.
+        This asks the LLM to format the conversation into proper format
+        (YAML or markdown). The actual file write is handled by Writer agent
+        via ChatSession.
         """
         logger.info(f"Generating document content for {self.target_path}")
 
         if self.document_type == "markdown":
             # Ask LLM to format the conversation into markdown
-            format_prompt = f"""Based on our entire conversation, please generate a complete
-markdown document following this template structure:
+            intro = (
+                "Based on our entire conversation, please generate a complete "
+                "markdown document following this template structure:"
+            )
+            format_prompt = f"""{intro}
 
 {self.template_content}
 
@@ -803,18 +870,22 @@ Do not include markdown code blocks or explanations, just the raw markdown conte
         else:
             # Get today's date for the ticket
             from datetime import date
+
             today = date.today().isoformat()
 
             # Ask LLM to format the conversation into YAML (for tickets)
-            format_prompt = f"""Based on our conversation, generate a YAML specification file.
+            intro = "Based on our conversation, generate a YAML specification " "file."
+            format_prompt = f"""{intro}
 
 TEMPLATE:
 {self.template_content}
 
 STRICT RULES - YOU MUST FOLLOW THESE:
 
-1. **ONLY include information explicitly discussed** - Do NOT invent or assume details
-2. **Delete sections not covered** - If we didn't discuss frontend, remove that section entirely
+1. **ONLY include information explicitly discussed** - Do NOT invent or
+   assume details
+2. **Delete sections not covered** - If we didn't discuss frontend, remove
+   that section entirely
 3. **Leave fields empty if not discussed** - Use "" for strings, [] for lists
 4. **Never estimate** - Leave priority and effort empty unless the user specified them
 5. **Use today's date** - created: {today}, updated: {today}
@@ -851,9 +922,20 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
 
                 # Call LLM to format document (no tools)
                 if self.document_type == "markdown":
-                    system_prompt = "You are a markdown formatting assistant. Create well-structured documentation. Only include information explicitly provided - never invent details."
+                    system_prompt = (
+                        "You are a markdown formatting assistant. Create "
+                        "well-structured documentation. Only include "
+                        "information explicitly provided - never invent "
+                        "details."
+                    )
                 else:
-                    system_prompt = "You are a YAML formatting assistant. Your job is to accurately capture ONLY what was discussed - never add, assume, or invent information. If something wasn't discussed, leave it empty or delete the section."
+                    system_prompt = (
+                        "You are a YAML formatting assistant. Your job is to "
+                        "accurately capture ONLY what was discussed - never "
+                        "add, assume, or invent information. If something "
+                        "wasn't discussed, leave it empty or delete the "
+                        "section."
+                    )
 
                 response = agent.client.messages.create(
                     model=model,
@@ -862,15 +944,16 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
                     system=system_prompt,
                 )
 
-                # Extract text
+                # Extract text with safe handling
+                content_blocks = getattr(response, "content", [])
                 text_parts = []
-                for block in response.content:
+                for block in content_blocks or []:
                     if hasattr(block, "text"):
                         text_parts.append(block.text)
                     elif isinstance(block, dict) and "text" in block:
                         text_parts.append(block["text"])
 
-                content = "\n".join(text_parts)
+                content = "\n".join(text_parts) if text_parts else ""
 
                 # Clean up any markdown artifacts
                 if self.document_type == "markdown":
@@ -896,7 +979,9 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
                 # Store generated content (don't write file yet)
                 self.generated_content = content
                 self.ready_to_save = True
-                logger.info(f"Generated {len(content)} chars of content for {self.target_path}")
+                logger.info(
+                    f"Generated {len(content)} chars of content for {self.target_path}"
+                )
 
             else:
                 logger.error("No LLM available to format spec")
@@ -954,7 +1039,10 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
             return "user_analysis"
 
         # Phase 3: Requirements - need must_haves and success criteria
-        if not info["requirements"]["must_have"] or not info["requirements"]["success_criteria"]:
+        if (
+            not info["requirements"]["must_have"]
+            or not info["requirements"]["success_criteria"]
+        ):
             return "requirements"
 
         # Phase 4: Edge cases - need at least 2
@@ -964,7 +1052,9 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
         # Ready for wrap-up
         return "wrap_up"
 
-    def _extract_info_from_exchange(self, user_input: str, assistant_response: str = ""):
+    def _extract_info_from_exchange(
+        self, user_input: str, assistant_response: str = ""
+    ):
         """Extract key information from the latest exchange.
 
         Uses pattern matching to identify and store information.
@@ -978,20 +1068,47 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
         info = self.gathered_info
 
         # Feature request indicators (positive framing - "I want to add X")
-        feature_indicators = ["want to add", "want to create", "want to implement",
-                            "need a", "need to add", "add a", "create a", "implement",
-                            "build a", "make a", "i want", "we need", "should have"]
+        feature_indicators = [
+            "want to add",
+            "want to create",
+            "want to implement",
+            "need a",
+            "need to add",
+            "add a",
+            "create a",
+            "implement",
+            "build a",
+            "make a",
+            "i want",
+            "we need",
+            "should have",
+        ]
 
         # Problem description indicators (negative framing - "X is broken")
-        problem_indicators = ["problem", "issue", "bug", "broken", "doesn't work",
-                            "can't", "cannot", "failing", "error", "wrong",
-                            "confused", "confusing", "cluttered", "slow", "frustrating"]
+        problem_indicators = [
+            "problem",
+            "issue",
+            "bug",
+            "broken",
+            "doesn't work",
+            "can't",
+            "cannot",
+            "failing",
+            "error",
+            "wrong",
+            "confused",
+            "confusing",
+            "cluttered",
+            "slow",
+            "frustrating",
+        ]
 
         # Capture feature requests as problem descriptions too
         is_feature_request = any(phrase in user_lower for phrase in feature_indicators)
         is_problem_statement = any(word in user_lower for word in problem_indicators)
 
-        # First substantive response should always be captured as problem/feature description
+        # First substantive response should always be captured as
+        # problem/feature description
         is_first_response = self.turn_count <= 2 and not info["problem"]["description"]
 
         if is_feature_request or is_problem_statement or is_first_response:
@@ -1001,61 +1118,132 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
                 info["problem"]["description"] += f" | {user_input[:200]}"
 
         # Example indicators
-        example_indicators = ["example", "for instance", "like when", "specifically",
-                            "for example", "such as", "e.g.", "happens when"]
+        example_indicators = [
+            "example",
+            "for instance",
+            "like when",
+            "specifically",
+            "for example",
+            "such as",
+            "e.g.",
+            "happens when",
+        ]
         if any(phrase in user_lower for phrase in example_indicators):
             example = user_input[:200]
             if example not in info["problem"]["examples"]:
                 info["problem"]["examples"].append(example)
 
         # Impact indicators
-        impact_indicators = ["affects", "impact", "causes", "results in", "leads to",
-                           "because of this", "costs", "loses", "wastes"]
+        impact_indicators = [
+            "affects",
+            "impact",
+            "causes",
+            "results in",
+            "leads to",
+            "because of this",
+            "costs",
+            "loses",
+            "wastes",
+        ]
         if any(phrase in user_lower for phrase in impact_indicators):
             if not info["problem"]["impact"]:
                 info["problem"]["impact"] = user_input[:200]
 
         # User type indicators
-        user_types = ["users", "customers", "developers", "admins", "managers",
-                     "team", "clients", "employees", "visitors", "members"]
+        user_types = [
+            "users",
+            "customers",
+            "developers",
+            "admins",
+            "managers",
+            "team",
+            "clients",
+            "employees",
+            "visitors",
+            "members",
+        ]
         for user_type in user_types:
             if user_type in user_lower and user_type not in info["users"]["who"]:
                 info["users"]["who"].append(user_type)
 
         # Context indicators
-        context_indicators = ["when they", "while", "during", "in the", "at work",
-                            "on mobile", "on desktop", "daily", "weekly"]
+        context_indicators = [
+            "when they",
+            "while",
+            "during",
+            "in the",
+            "at work",
+            "on mobile",
+            "on desktop",
+            "daily",
+            "weekly",
+        ]
         if any(phrase in user_lower for phrase in context_indicators):
             if not info["users"]["context"]:
                 info["users"]["context"] = user_input[:200]
 
         # Requirement indicators (must-have)
-        requirement_indicators = ["should", "must", "need to", "has to", "require",
-                                 "want to", "able to", "allow", "enable"]
+        requirement_indicators = [
+            "should",
+            "must",
+            "need to",
+            "has to",
+            "require",
+            "want to",
+            "able to",
+            "allow",
+            "enable",
+        ]
         if any(phrase in user_lower for phrase in requirement_indicators):
             req = user_input[:200]
             if req not in info["requirements"]["must_have"]:
                 info["requirements"]["must_have"].append(req)
 
         # Success criteria indicators
-        success_indicators = ["success", "done when", "complete when", "works if",
-                            "accomplished", "finished", "achieved", "goal is"]
+        success_indicators = [
+            "success",
+            "done when",
+            "complete when",
+            "works if",
+            "accomplished",
+            "finished",
+            "achieved",
+            "goal is",
+        ]
         if any(phrase in user_lower for phrase in success_indicators):
             criteria = user_input[:200]
             if criteria not in info["requirements"]["success_criteria"]:
                 info["requirements"]["success_criteria"].append(criteria)
 
         # Constraint indicators
-        constraint_indicators = ["can't", "cannot", "must not", "limitation",
-                               "constraint", "restriction", "budget", "deadline"]
+        constraint_indicators = [
+            "can't",
+            "cannot",
+            "must not",
+            "limitation",
+            "constraint",
+            "restriction",
+            "budget",
+            "deadline",
+        ]
         if any(phrase in user_lower for phrase in constraint_indicators):
             constraint = user_input[:200]
             if constraint not in info["requirements"]["constraints"]:
                 info["requirements"]["constraints"].append(constraint)
 
         # Edge case indicators
-        edge_case_indicators = ["what if", "edge case", "error", "fail", "wrong",
-                              "invalid", "timeout", "offline", "empty", "null"]
+        edge_case_indicators = [
+            "what if",
+            "edge case",
+            "error",
+            "fail",
+            "wrong",
+            "invalid",
+            "timeout",
+            "offline",
+            "empty",
+            "null",
+        ]
         if any(phrase in user_lower for phrase in edge_case_indicators):
             edge_case = user_input[:200]
             if edge_case not in info["edge_cases"]:
@@ -1067,7 +1255,9 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
         # Update gaps
         self._update_gaps()
 
-        logger.debug(f"Extracted info - Phase: {info['phase']}, Gaps: {len(info['gaps'])}")
+        logger.debug(
+            f"Extracted info - Phase: {info['phase']}, Gaps: {len(info['gaps'])}"
+        )
 
     def _update_gaps(self):
         """Identify what information is still missing.
@@ -1132,10 +1322,14 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
             reqs = "; ".join(r[:50] for r in info["requirements"]["must_have"][:3])
             lines.append(f"**Requirements:** {reqs}")
         if info["requirements"]["success_criteria"]:
-            criteria = "; ".join(c[:50] for c in info["requirements"]["success_criteria"][:3])
+            criteria = "; ".join(
+                c[:50] for c in info["requirements"]["success_criteria"][:3]
+            )
             lines.append(f"**Success criteria:** {criteria}")
         if info["requirements"]["constraints"]:
-            constraints = "; ".join(c[:50] for c in info["requirements"]["constraints"][:3])
+            constraints = "; ".join(
+                c[:50] for c in info["requirements"]["constraints"][:3]
+            )
             lines.append(f"**Constraints:** {constraints}")
 
         # Edge cases
@@ -1158,7 +1352,7 @@ Output ONLY valid YAML, no markdown code blocks or explanations."""
         parts = []
 
         if info["problem"]["description"]:
-            parts.append(f"problem identified")
+            parts.append("problem identified")
         if info["users"]["who"]:
             parts.append(f"{len(info['users']['who'])} user types")
         if info["requirements"]["must_have"]:
@@ -1198,7 +1392,6 @@ Good questions (pick ONE that hasn't been answered):
 - Can you give a quick example of when this would be used?
 
 ⚠️ If the user already explained what and why, SKIP to the next phase.""",
-
             "user_analysis": """**PHASE: User Context**
 Quick check on who uses this and when. Don't over-analyze for simple features.
 Good questions (pick ONE if relevant):
@@ -1206,7 +1399,6 @@ Good questions (pick ONE if relevant):
 - In what situations would they use it?
 
 ⚠️ For simple utility features, this can be brief or skipped.""",
-
             "requirements": """**PHASE: Behavior Clarification**
 Clarify what the feature should actually do. Focus on behavior, not implementation.
 Good questions (pick ONE that adds value):
@@ -1215,7 +1407,6 @@ Good questions (pick ONE that adds value):
 - Any confirmation needed, or should it just work?
 
 ⚠️ Don't ask about edge cases for simple features.""",
-
             "edge_cases": """**PHASE: Edge Cases (only for complex features)**
 Only ask about edge cases for complex features with many moving parts.
 For simple utilities (like /clear), SKIP this phase entirely.
@@ -1225,12 +1416,11 @@ If needed, ask ONE question about:
 - Boundary conditions (empty state, huge data, etc.)
 
 ⚠️ Simple features don't need extensive edge case analysis.""",
-
             "wrap_up": """**PHASE: Wrap Up**
 You have enough information. Show the summary now.
 - Present organized specification summary
 - Ask for approval before saving
-- Keep it concise for simple features"""
+- Keep it concise for simple features""",
         }
 
         return guidance.get(phase, guidance["problem_discovery"])
@@ -1250,7 +1440,9 @@ You have enough information. Show the summary now.
         if len(self.conversation_history) <= MAX_HISTORY_MESSAGES:
             return  # No compaction needed
 
-        logger.info(f"Compacting conversation from {len(self.conversation_history)} messages")
+        logger.info(
+            f"Compacting conversation from {len(self.conversation_history)} messages"
+        )
 
         # Extract info from middle messages before removing them
         middle_start = 2
@@ -1267,9 +1459,10 @@ You have enough information. Show the summary now.
         recent_messages = self.conversation_history[-8:]
 
         # Add a summary message in between
+        gathered_brief = self._format_gathered_info_brief()
         summary_msg = {
             "role": "assistant",
-            "content": f"[Previous discussion summarized - gathered: {self._format_gathered_info_brief()}]"
+            "content": f"[Previous discussion summarized - gathered: {gathered_brief}]",
         }
 
         self.conversation_history = first_messages + [summary_msg] + recent_messages
@@ -1295,8 +1488,5 @@ Gaps to fill: {gaps_str}
 Continue with ONE question about the gaps."""
 
             # Insert as user message (some models handle system mid-conversation poorly)
-            self.conversation_history.append({
-                "role": "user",
-                "content": reminder
-            })
+            self.conversation_history.append({"role": "user", "content": reminder})
             logger.debug(f"Injected persona reminder at turn {self.turn_count}")

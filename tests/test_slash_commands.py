@@ -8,15 +8,14 @@ This module tests:
 """
 
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+from unittest.mock import patch
 
 from cdd_agent.session.chat_session import ChatSession
-from cdd_agent.slash_commands import (
-    ClearCommand,
-    SlashCommandRouter,
-    get_router,
-    setup_commands,
-)
+from cdd_agent.slash_commands import ClearCommand
+from cdd_agent.slash_commands import SlashCommandRouter
+from cdd_agent.slash_commands import get_router
+from cdd_agent.slash_commands import setup_commands
 
 
 class TestSlashCommandRouter(unittest.TestCase):
@@ -227,7 +226,15 @@ class TestSetupCommands(unittest.TestCase):
         command_names = [cmd.name for cmd in commands]
 
         # Check that all expected commands are registered
-        expected_commands = ["init", "new", "socrates", "plan", "exec", "clear", "help"]
+        expected_commands = [
+            "init",
+            "new",
+            "socrates",
+            "plan",
+            "exec",
+            "clear",
+            "help",
+        ]
 
         for expected in expected_commands:
             self.assertIn(expected, command_names)
@@ -249,11 +256,11 @@ class TestSetupCommands(unittest.TestCase):
         commands = self.router.get_all_commands()
         self.assertGreater(len(commands), 0)
 
-        # When session is None, commands won't have session attribute set
+        # When session is None, commands have session attribute set to None
         clear_cmd = self.router._commands.get("clear")
         self.assertIsNotNone(clear_cmd)
-        # The session attribute should not be set when session=None in setup
-        self.assertFalse(hasattr(clear_cmd, "session"))
+        # The session attribute should be None when session=None in setup
+        self.assertIsNone(clear_cmd.session)
 
 
 class TestCommandIntegration(unittest.TestCase):

@@ -14,11 +14,16 @@ import json
 import logging
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING
+from typing import Any
+from typing import Optional
 
 from ..session.base_agent import BaseAgent
-from ..utils.plan_model import ImplementationPlan, PlanStep
+from ..utils.plan_model import ImplementationPlan
+from ..utils.plan_model import PlanStep
+from ..utils.yaml_parser import TicketSpec
 from ..utils.yaml_parser import parse_ticket_spec
+
 
 if TYPE_CHECKING:
     from ..session.chat_session import ChatSession
@@ -64,7 +69,7 @@ class PlannerAgent(BaseAgent):
         self.description = "Generate implementation plans from refined specs"
 
         # Agent state
-        self.spec = None
+        self.spec: Optional[TicketSpec] = None
         self.plan: Optional[ImplementationPlan] = None
         self.plan_path: Optional[Path] = None
 
@@ -72,6 +77,18 @@ class PlannerAgent(BaseAgent):
         self.project_context: str = ""  # From CDD.md/CLAUDE.md
         self.codebase_structure: str = ""  # File tree
         self.relevant_files: dict[str, str] = {}  # path -> content snippets
+
+    def _require_spec(self) -> TicketSpec:
+        """Ensure self.spec is set and return it.
+
+        Raises:
+            RuntimeError: If spec is None
+        """
+        if self.spec is None:
+            raise RuntimeError(
+                "Ticket specification is not loaded. Call initialize() first."
+            )
+        return self.spec
 
     def initialize(self) -> str:
         """Load spec and generate implementation plan.
@@ -84,14 +101,15 @@ class PlannerAgent(BaseAgent):
         try:
             # 1. Load ticket spec
             self.spec = parse_ticket_spec(self.target_path)
-            logger.info(f"Loaded spec: {self.spec.title} (type: {self.spec.type})")
+            spec: TicketSpec = self._require_spec()  # Ensure spec is set
+            logger.info(f"Loaded spec: {spec.title} (type: {spec.type})")
 
             # 2. Check if spec is complete
-            if not self.spec.is_complete():
-                vague_areas = self.spec.get_vague_areas()
+            if not spec.is_complete():
+                vague_areas = spec.get_vague_areas()
                 vague_count = len(vague_areas)
                 logger.warning(f"Spec incomplete ({vague_count} vague areas)")
-                slug_hint = self.spec.title.lower().replace(" ", "-")
+                slug_hint = spec.title.lower().replace(" ", "-")
                 return (
                     "**⚠️  Specification is incomplete**\n\n"
                     "The ticket spec needs more detail before planning.\n\n"
@@ -132,7 +150,7 @@ class PlannerAgent(BaseAgent):
             logger.info("No existing plan found, will generate new plan")
             greeting = (
                 f"**Hello! I'm the Planner.**\n\n"
-                f"Analyzing specification: *{self.spec.title}*\n\n"
+                f"Analyzing specification: *{spec.title}*\n\n"
                 f"Generating implementation plan...\n\n"
             )
 
@@ -289,7 +307,9 @@ class PlannerAgent(BaseAgent):
                 agent = self.session.general_agent
                 model = agent.provider_config.get_model(agent.model_tier)
 
-                logger.info(f"Calling LLM directly for plan generation (model: {model})")
+                logger.info(
+                    f"Calling LLM directly for plan generation (model: {model})"
+                )
 
                 # Direct API call - NO TOOLS
                 response = agent.client.messages.create(
@@ -331,7 +351,8 @@ class PlannerAgent(BaseAgent):
             else:
                 logger.error("No LLM available for plan generation")
                 raise RuntimeError(
-                    "LLM not available. Please ensure you're authenticated with an LLM provider."
+                    "LLM not available. Please ensure you're authenticated "
+                    "with an LLM provider."
                 )
 
         except json.JSONDecodeError as e:
@@ -351,7 +372,12 @@ class PlannerAgent(BaseAgent):
         Returns:
             System prompt for LLM
         """
-        return f'''You are an expert software architect creating implementation plans.
+        project_ctx = (
+            self.project_context
+            if self.project_context
+            else "No project context file (CDD.md/CLAUDE.md) found."
+        )
+        return f"""You are an expert software architect creating implementation plans.
 
 ## YOUR ROLE
 
@@ -363,7 +389,7 @@ You create precise, actionable implementation plans that:
 
 ## PROJECT CONTEXT
 
-{self.project_context if self.project_context else "No project context file (CDD.md/CLAUDE.md) found."}
+{project_ctx}
 
 ## CODEBASE STRUCTURE
 
@@ -382,7 +408,7 @@ These files may need to be modified or referenced:
 2. **Follow existing patterns** - Look at how similar features are implemented
 3. **Be specific** - Don't say "update the config", say which config file
 4. **Keep it focused** - Only include steps directly needed for this feature
-5. **No time estimates** - The project doesn't use time estimates (per project guidelines)
+5. **No time estimates** - The project doesn't use time estimates (per guidelines)
 
 ## OUTPUT FORMAT
 
@@ -409,7 +435,7 @@ Do NOT include:
 - Explanatory text before or after the JSON
 - Generic paths like "src/models/" - use actual paths
 - Time estimates (not used in this project)
-'''
+"""
 
     def _generate_heuristic_plan(self) -> ImplementationPlan:
         """Generate basic plan using heuristics (fallback).
@@ -417,20 +443,19 @@ Do NOT include:
         Returns:
             Basic ImplementationPlan
         """
-        logger.info(f"Generating heuristic plan for ticket type: {self.spec.type}")
+        spec: TicketSpec = self._require_spec()
+        logger.info(f"Generating heuristic plan for ticket type: {spec.type}")
         ticket_slug = self.target_path.parent.name
 
         # Create simple linear plan based on ticket type
-        steps = []
+        steps: list[PlanStep] = []
 
-        if self.spec.type == "feature":
+        if spec.type == "feature":
             steps = [
                 PlanStep(
                     number=1,
                     title="Design data models and schemas",
-                    description=(
-                        f"Design and implement data models for {self.spec.title}"
-                    ),
+                    description=(f"Design and implement data models for {spec.title}"),
                     complexity="medium",
                     estimated_time="1 hour",
                     dependencies=[],
@@ -439,7 +464,7 @@ Do NOT include:
                 PlanStep(
                     number=2,
                     title="Implement core logic",
-                    description=f"Implement main functionality for {self.spec.title}",
+                    description=f"Implement main functionality for {spec.title}",
                     complexity="medium",
                     estimated_time="2 hours",
                     dependencies=[1],
@@ -473,7 +498,7 @@ Do NOT include:
                     files_affected=["README.md", "docs/"],
                 ),
             ]
-        elif self.spec.type == "bug":
+        elif spec.type == "bug":
             steps = [
                 PlanStep(
                     number=1,
@@ -517,7 +542,7 @@ Do NOT include:
                 PlanStep(
                     number=1,
                     title="Plan refactoring approach",
-                    description=f"Design refactoring strategy for {self.spec.title}",
+                    description=f"Design refactoring strategy for {spec.title}",
                     complexity="simple",
                     estimated_time="30 min",
                     dependencies=[],
@@ -545,9 +570,9 @@ Do NOT include:
 
         plan = ImplementationPlan(
             ticket_slug=ticket_slug,
-            ticket_title=self.spec.title,
-            ticket_type=self.spec.type,
-            overview=f"Basic implementation plan for {self.spec.title}. "
+            ticket_title=spec.title,
+            ticket_type=spec.type,
+            overview=f"Basic implementation plan for {spec.title}. "
             f"Generated using heuristic fallback.",
             steps=steps,
             total_complexity="medium",
@@ -640,7 +665,9 @@ Do NOT include:
                     content = path.read_text(encoding="utf-8")
                     # Truncate if too long (keep most important parts)
                     if len(content) > 8000:
-                        logger.warning(f"{filename} is long ({len(content)} chars), truncating")
+                        logger.warning(
+                            f"{filename} is long ({len(content)} chars), truncating"
+                        )
                         content = content[:8000] + "\n\n[... truncated ...]"
                     return content
                 except Exception as e:
@@ -661,14 +688,16 @@ Do NOT include:
             result = subprocess.run(
                 [
                     "tree",
-                    "-L", "4",  # 4 levels deep
-                    "-I", "__pycache__|node_modules|.git|.venv|venv|*.pyc|.pytest_cache|.mypy_cache|dist|build|*.egg-info",
+                    "-L",
+                    "4",  # 4 levels deep
+                    "-I",
+                    "__pycache__|node_modules|.git|.venv|venv|*.pyc|.pytest_cache|.mypy_cache|dist|build|*.egg-info",
                     "--noreport",  # Don't show file count
-                    str(Path.cwd())
+                    str(Path.cwd()),
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode == 0:
@@ -705,8 +734,15 @@ Do NOT include:
         root = Path.cwd()
 
         exclude_dirs = {
-            "__pycache__", "node_modules", ".git", ".venv", "venv",
-            ".pytest_cache", ".mypy_cache", "dist", "build"
+            "__pycache__",
+            "node_modules",
+            ".git",
+            ".venv",
+            "venv",
+            ".pytest_cache",
+            ".mypy_cache",
+            "dist",
+            "build",
         }
 
         def scan_dir(path: Path, prefix: str = "", depth: int = 0):
@@ -746,14 +782,16 @@ Do NOT include:
         Returns:
             Dict of file_path -> brief content description
         """
-        relevant = {}
+        relevant: dict[str, str] = {}
 
         if not self.spec:
             return relevant
 
+        spec: TicketSpec = self._require_spec()
+
         # Extract keywords from spec
-        keywords = set()
-        text_to_search = f"{self.spec.title} {self.spec.description}"
+        keywords: set[str] = set()
+        text_to_search = f"{spec.title} {spec.description}"
 
         # Common feature-related words to look for
         for word in text_to_search.lower().split():
@@ -761,7 +799,15 @@ Do NOT include:
                 keywords.add(word)
 
         # Also add specific tech terms
-        tech_terms = ["cli", "command", "session", "chat", "agent", "tool", "config"]
+        tech_terms = [
+            "cli",
+            "command",
+            "session",
+            "chat",
+            "agent",
+            "tool",
+            "config",
+        ]
         for term in tech_terms:
             if term in text_to_search.lower():
                 keywords.add(term)
@@ -782,7 +828,7 @@ Do NOT include:
                 filename_lower = py_file.stem.lower()
                 if any(kw in filename_lower for kw in keywords):
                     rel_path = py_file.relative_to(Path.cwd())
-                    relevant[str(rel_path)] = f"Filename matches keywords"
+                    relevant[str(rel_path)] = "Filename matches keywords"
                     continue
 
                 # Quick scan of file content (first 50 lines)
@@ -795,7 +841,9 @@ Do NOT include:
                     matching_kw = [kw for kw in keywords if kw in head_lower]
                     if len(matching_kw) >= 2:  # At least 2 keyword matches
                         rel_path = py_file.relative_to(Path.cwd())
-                        relevant[str(rel_path)] = f"Contains: {', '.join(matching_kw[:3])}"
+                        relevant[str(rel_path)] = (
+                            f"Contains: {', '.join(matching_kw[:3])}"
+                        )
                 except Exception:
                     pass
 
@@ -830,23 +878,24 @@ Do NOT include:
         Returns:
             User message with spec information
         """
-        ac_text = "\n".join(f"- {ac}" for ac in self.spec.acceptance_criteria)
+        spec: TicketSpec = self._require_spec()
+        ac_text = "\n".join(f"- {ac}" for ac in spec.acceptance_criteria)
 
-        return f'''Please create an implementation plan for this feature:
+        return f"""Please create an implementation plan for this feature:
 
 ## SPECIFICATION
 
-**Title:** {self.spec.title}
-**Type:** {self.spec.type}
+**Title:** {spec.title}
+**Type:** {spec.type}
 
 **Description:**
-{self.spec.description}
+{spec.description}
 
 **Acceptance Criteria:**
 {ac_text if ac_text else "None specified"}
 
 **Technical Notes:**
-{self.spec.technical_notes or "None provided"}
+{spec.technical_notes or "None provided"}
 
 ## YOUR TASK
 
@@ -859,9 +908,11 @@ Create a step-by-step implementation plan that:
 Remember:
 - Use ACTUAL file paths from the codebase structure
 - Follow the project's existing patterns
-- Output ONLY valid JSON'''
+- Output ONLY valid JSON"""
 
-    def _parse_plan_response(self, response_text: str, ticket_slug: str) -> ImplementationPlan:
+    def _parse_plan_response(
+        self, response_text: str, ticket_slug: str
+    ) -> ImplementationPlan:
         """Parse LLM response into ImplementationPlan.
 
         Handles JSON extraction from potentially messy LLM output.
@@ -884,7 +935,9 @@ Remember:
         # Try to extract JSON from code blocks
         if "```" in clean_text:
             # Extract content between code blocks
-            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL)
+            json_match = re.search(
+                r"```(?:json)?\s*(\{.*?\})\s*```", clean_text, re.DOTALL
+            )
             if json_match:
                 clean_text = json_match.group(1)
             else:
@@ -904,7 +957,7 @@ Remember:
                 raise
 
         # Build steps
-        steps = []
+        steps: list[PlanStep] = []
         for step_data in data.get("steps", []):
             steps.append(
                 PlanStep(
@@ -918,10 +971,11 @@ Remember:
                 )
             )
 
+        spec: TicketSpec = self._require_spec()
         return ImplementationPlan(
             ticket_slug=ticket_slug,
-            ticket_title=self.spec.title,
-            ticket_type=self.spec.type,
+            ticket_title=spec.title,
+            ticket_type=spec.type,
             overview=data.get("overview", ""),
             steps=steps,
             total_complexity=data.get("total_complexity", "medium"),
@@ -975,7 +1029,8 @@ Remember:
                         # Check if parent directory exists
                         if not full_path.parent.exists():
                             warnings.append(
-                                f"Path may not exist: '{path}' - parent directory not found"
+                                f"Path may not exist: '{path}' - "
+                                f"parent directory not found"
                             )
 
         # Check for empty steps
@@ -983,7 +1038,8 @@ Remember:
             warnings.append("Plan has no steps!")
 
         # Check for very short plans on complex specs
-        if len(plan.steps) < 2 and len(self.spec.acceptance_criteria) > 3:
+        spec: TicketSpec = self._require_spec()
+        if len(plan.steps) < 2 and len(spec.acceptance_criteria) > 3:
             warnings.append(
                 "Plan seems too simple for the spec complexity - review carefully"
             )

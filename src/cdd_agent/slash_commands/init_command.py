@@ -3,8 +3,10 @@
 Handler for the /init slash command.
 """
 
-from ..mechanical.init import InitializationError, initialize_project
-from .base import BaseSlashCommand, CommandError
+from ..mechanical.init import InitializationError
+from ..mechanical.init import initialize_project
+from .base import BaseSlashCommand
+from .base import CommandError
 
 
 class InitCommand(BaseSlashCommand):

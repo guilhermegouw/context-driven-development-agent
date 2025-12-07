@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .base import BaseSlashCommand
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,7 +97,7 @@ class SocratesCommand(BaseSlashCommand):
             logger.info("Activating Socrates agent")
             greeting = self.session.switch_to_agent(SocratesAgent, spec_path)
             logger.info("Successfully activated Socrates agent")
-            return greeting
+            return str(greeting)
         except Exception as e:
             logger.error(f"Error activating Socrates: {e}", exc_info=True)
             return (
@@ -109,7 +110,8 @@ class SocratesCommand(BaseSlashCommand):
         """Resolve ticket slug or file path to document path.
 
         Args:
-            document_slug: Ticket slug (e.g., "feature-user-auth") or file path (e.g., "CDD.md")
+            document_slug: Ticket slug (e.g., "feature-user-auth") or file
+                path (e.g., "CDD.md")
 
         Returns:
             Path to document file (spec.yaml or .md file)
@@ -122,18 +124,18 @@ class SocratesCommand(BaseSlashCommand):
         base_path = Path.cwd()
 
         # If it looks like a markdown file, handle it directly
-        if document_slug.lower().endswith('.md') or 'CDD.md' in document_slug:
+        if document_slug.lower().endswith(".md") or "CDD.md" in document_slug:
             # Try direct path first
             direct_path = base_path / document_slug
-            if direct_path.exists() and direct_path.suffix == '.md':
+            if direct_path.exists() and direct_path.suffix == ".md":
                 return direct_path
-            
+
             # Try with .md extension if not provided
-            if not document_slug.lower().endswith('.md'):
+            if not document_slug.lower().endswith(".md"):
                 md_path = base_path / f"{document_slug}.md"
                 if md_path.exists():
                     return md_path
-        
+
         # Try specs/tickets/<slug>/spec.yaml (most common for tickets)
         ticket_dir = base_path / "specs" / "tickets" / document_slug
         if ticket_dir.exists() and ticket_dir.is_dir():
@@ -154,7 +156,9 @@ class SocratesCommand(BaseSlashCommand):
             ticket_dirs = [d for d in tickets_dir.iterdir() if d.is_dir()]
 
             # Find matching ticket (case-insensitive partial match)
-            matches = [d for d in ticket_dirs if document_slug.lower() in d.name.lower()]
+            matches = [
+                d for d in ticket_dirs if document_slug.lower() in d.name.lower()
+            ]
 
             if len(matches) == 1:
                 spec_path = matches[0] / "spec.yaml"
@@ -168,7 +172,7 @@ class SocratesCommand(BaseSlashCommand):
                 )
 
         # Search for markdown files in the project
-        if not document_slug.lower().endswith('.md'):
+        if not document_slug.lower().endswith(".md"):
             # Look for any markdown files that might match
             for md_file in base_path.rglob("*.md"):
                 if document_slug.lower() in md_file.name.lower():
@@ -179,8 +183,8 @@ class SocratesCommand(BaseSlashCommand):
         if tickets_dir.exists():
             search_locations.append(str(tickets_dir))
         search_locations.append("project directory for .md files")
-        
+
         raise FileNotFoundError(
-            f"Document not found: {document_slug}\n\n" 
+            f"Document not found: {document_slug}\n\n"
             f"Searched in: {', '.join(search_locations)}"
         )

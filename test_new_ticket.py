@@ -15,14 +15,12 @@ from datetime import datetime
 from pathlib import Path
 
 from src.cdd_agent.mechanical.init import initialize_project
-from src.cdd_agent.mechanical.new_ticket import (
-    TicketCreationError,
-    create_new_documentation,
-    create_new_ticket,
-    get_documentation_directory,
-    normalize_ticket_name,
-    populate_template_dates,
-)
+from src.cdd_agent.mechanical.new_ticket import TicketCreationError
+from src.cdd_agent.mechanical.new_ticket import create_new_documentation
+from src.cdd_agent.mechanical.new_ticket import create_new_ticket
+from src.cdd_agent.mechanical.new_ticket import get_documentation_directory
+from src.cdd_agent.mechanical.new_ticket import normalize_ticket_name
+from src.cdd_agent.mechanical.new_ticket import populate_template_dates
 
 
 def test_normalize_ticket_name():

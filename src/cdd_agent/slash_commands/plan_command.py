@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .base import BaseSlashCommand
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +91,7 @@ class PlanCommand(BaseSlashCommand):
             logger.info("Activating Planner agent")
             greeting = self.session.switch_to_agent(PlannerAgent, spec_path)
             logger.info("Successfully activated Planner agent")
-            return greeting
+            return str(greeting)
         except Exception as e:
             logger.error(f"Error activating Planner: {e}", exc_info=True)
             return (

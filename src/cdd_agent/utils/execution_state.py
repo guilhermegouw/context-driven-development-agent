@@ -5,12 +5,15 @@ autonomous code execution, and execution mode definitions that control
 which tools are available to the agent.
 """
 
+from __future__ import annotations
+
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
+from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 
 class ExecutionMode(Enum):
@@ -117,9 +120,9 @@ class StepExecution:
 
     step_number: int
     status: str = "pending"  # pending, in_progress, completed, failed
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    error: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error: str | None = None
     files_created: list[str] = field(default_factory=list)
     files_modified: list[str] = field(default_factory=list)
 
@@ -150,7 +153,7 @@ class ExecutionState:
     current_step: int
     step_executions: dict[int, StepExecution]
     started_at: str
-    completed_at: Optional[str] = None
+    completed_at: str | None = None
     status: str = "in_progress"
 
     def __post_init__(self):
@@ -238,7 +241,7 @@ class ExecutionState:
         path.write_text(self.to_json())
 
     @classmethod
-    def load(cls, path: Path) -> Optional["ExecutionState"]:
+    def load(cls, path: Path) -> "ExecutionState" | None:
         """Load state from file.
 
         Args:
@@ -307,7 +310,10 @@ class ExecutionState:
         self.step_executions[step_number].started_at = datetime.now().isoformat()
 
     def mark_step_completed(
-        self, step_number: int, files_created: list[str], files_modified: list[str]
+        self,
+        step_number: int,
+        files_created: list[str],
+        files_modified: list[str],
     ) -> None:
         """Mark a step as completed.
 

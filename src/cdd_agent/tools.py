@@ -14,10 +14,16 @@ import subprocess
 import time
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from typing import Callable
+from typing import Dict
+from typing import List
+from typing import Optional
+
+from .background_executor import ProcessStatus
 
 # Import background execution components
-from .background_executor import get_background_executor, ProcessStatus
+from .background_executor import get_background_executor
 
 
 class RiskLevel(str, Enum):
@@ -90,7 +96,7 @@ class ToolRegistry:
         self.risk_levels: Dict[str, RiskLevel] = {}
 
     def register(
-        self, func: Callable = None, risk_level: RiskLevel = RiskLevel.SAFE
+        self, func: Callable | None = None, risk_level: RiskLevel = RiskLevel.SAFE
     ) -> Callable:
         """Register a tool function with risk classification.
 
@@ -133,8 +139,10 @@ class ToolRegistry:
 
         Args:
             include_risk_level: If True, include custom risk_level field.
-                               Set to False when using OAuth (Anthropic rejects custom fields)
-            read_only: If True, only return SAFE (read-only) tools for Plan Mode
+                Set to False when using OAuth (Anthropic rejects custom
+                fields)
+            read_only: If True, only return SAFE (read-only) tools for Plan
+                Mode
 
         Returns:
             List of tool schemas in Anthropic format
@@ -238,6 +246,7 @@ def read_file(path: str) -> str:
         PermissionError: If file can't be read
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     logger.info(f"📖 READ_FILE called: {path}")
@@ -301,6 +310,7 @@ def list_files(path: str = ".") -> str:
         NotADirectoryError: If path is not a directory
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     logger.info(f"📂 LIST_FILES called: {path}")
@@ -343,6 +353,7 @@ def run_bash(command: str) -> str:
         subprocess.CalledProcessError: If command fails
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     # Truncate long commands for logging
@@ -350,12 +361,13 @@ def run_bash(command: str) -> str:
     logger.info(f"🔧 RUN_BASH called: {cmd_preview}")
 
     try:
+        # Execute shell command with 30-second timeout limit for safety
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,  # 30 second timeout
+            timeout=30,
         )
 
         output = result.stdout
@@ -387,6 +399,7 @@ def _load_gitignore_patterns(cwd: Path) -> List[str]:
     Returns:
         List of gitignore patterns
     """
+    # Load .gitignore patterns from project's .gitignore file
     gitignore = cwd / ".gitignore"
     patterns = []
 
@@ -399,7 +412,7 @@ def _load_gitignore_patterns(cwd: Path) -> List[str]:
                     if line and not line.startswith("#"):
                         patterns.append(line)
         except Exception:
-            pass  # Ignore errors reading .gitignore
+            pass  # Ignore errors reading .gitignore file
 
     # Always ignore common directories
     patterns.extend(
@@ -546,9 +559,10 @@ def glob_files(pattern: str, max_results: int = 100) -> str:
                     matches.append(path)
 
         # Sort by modification time (most recent first)
+        # Prioritize more recently modified files for user context
         matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
-        # Limit results
+        # Limit number of results to prevent overwhelming output
         matches = matches[:max_results]
 
         # Format output
@@ -585,7 +599,7 @@ def grep_files(
     context_lines: int = 0,
     max_results: int = 100,
 ) -> str:
-    """Search for a regex pattern in files.
+    r"""Search for a regex pattern in files.
 
     Args:
         pattern: Regex pattern to search for
@@ -604,10 +618,14 @@ def grep_files(
     cwd = Path.cwd()
     gitignore_patterns = _load_gitignore_patterns(cwd)
     from .logging import get_logger
+
     logger = get_logger()
 
     pattern_preview = pattern[:50] + "..." if len(pattern) > 50 else pattern
-    logger.info(f"🔍 GREP_FILES called: pattern='{pattern_preview}', file_pattern='{file_pattern}'")
+    logger.info(
+        f"🔍 GREP_FILES called: pattern='{pattern_preview}', "
+        f"file_pattern='{file_pattern}'"
+    )
 
     matches_found = []
 
@@ -685,14 +703,14 @@ def grep_files(
             result.append(f"{match['file']}:{match['line_num']}")
 
             # Add context before
-            for line in match["context_before"]:
+            for line in match["context_before"]:  # type: ignore[attr-defined]
                 result.append(f"  {line}")
 
             # Add matching line (highlighted)
             result.append(f"> {match['line']}")
 
             # Add context after
-            for line in match["context_after"]:
+            for line in match["context_after"]:  # type: ignore[attr-defined]
                 result.append(f"  {line}")
 
             result.append("")  # Blank line between matches
@@ -707,7 +725,7 @@ def grep_files(
 
 @registry.register(risk_level=RiskLevel.MEDIUM)
 def edit_file(path: str, old_text: str, new_text: str) -> str:
-    """Edit a file by replacing old_text with new_text.
+    r"""Edit a file by replacing old_text with new_text.
 
     Performs exact string replacement. For safety, the replacement must be unique
     in the file (or it will fail). Use read_file first to see the exact content.
@@ -1021,10 +1039,7 @@ def get_tool_help(tool_name: str) -> Optional[str]:
 
 
 @registry.register(risk_level=RiskLevel.HIGH)
-def run_bash_background(
-    command: str, 
-    timeout: int = 300
-) -> str:
+def run_bash_background(command: str, timeout: int = 300) -> str:
     """Execute a bash command in the background with real-time output streaming.
 
     SECURITY WARNING: Only execute trusted commands!
@@ -1039,6 +1054,7 @@ def run_bash_background(
         or error message if command couldn't be started
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     # Truncate long commands for logging
@@ -1048,21 +1064,31 @@ def run_bash_background(
     try:
         # Get global background executor
         executor = get_background_executor()
-        
+
         # Start background process
         process = executor.execute_command(command, timeout)
-        
+
         # Format success response
         response = f"✓ Background process started: {process.process_id}\n\n"
         response += f"Command: {command}\n"
         response += f"Status: {process.status.value}\n"
-        response += f"Started: {_format_timestamp(process.start_time) if process.start_time else 'Unknown'}\n\n"
+        started_time = (
+            _format_timestamp(process.start_time) if process.start_time else "Unknown"
+        )
+        response += f"Started: {started_time}\n\n"
         response += "Management commands:\n"
-        response += f"- get_background_status('{process.process_id}') to check progress\n"
+        response += (
+            f"- get_background_status('{process.process_id}') to check progress\n"
+        )
         response += f"- get_background_output('{process.process_id}') to view output\n"
-        response += f"- interrupt_background_process('{process.process_id}') to cancel\n\n"
-        response += "Note: Process will continue running in the background even after this response."
-        
+        response += (
+            f"- interrupt_background_process('{process.process_id}') to cancel\n\n"
+        )
+        response += (
+            "Note: Process will continue running in the background even "
+            "after this response."
+        )
+
         return response
 
     except Exception as e:
@@ -1082,46 +1108,55 @@ def get_background_status(process_id: str) -> str:
         Status information or error message
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     try:
         executor = get_background_executor()
         process = executor.get_process(process_id)
-        
+
         if process is None:
             return f"Error: Process not found: {process_id}"
-        
+
         # Calculate runtime
         runtime = process.get_runtime()
-        
+
         # Format status response
         response = f"Background Process Status: {process_id}\n\n"
         response += f"Command: {process.command}\n"
         response += f"Status: {process.status.value}\n"
         response += f"Runtime: {runtime:.2f} seconds\n"
-        response += f"Exit Code: {process.exit_code if process.exit_code is not None else 'Still running'}\n"
+        exit_code = (
+            process.exit_code if process.exit_code is not None else "Still running"
+        )
+        response += f"Exit Code: {exit_code}\n"
         response += f"Output Lines: {len(process.output_lines)}\n"
-        
+
         if process.start_time:
             response += f"Started: {_format_timestamp(process.start_time)}\n"
-        
+
         if process.end_time:
             response += f"Ended: {_format_timestamp(process.end_time)}\n"
-        
+
         if process.error_message:
             response += f"Error: {process.error_message}\n"
-        
+
         # Add recommendations based on status
         if process.is_running():
-            response += f"\n💡 Use get_background_output('{process_id}') to see real-time output"
-            response += f"\n💡 Use interrupt_background_process('{process_id}') to cancel"
+            response += (
+                f"\n💡 Use get_background_output('{process_id}') to see "
+                "real-time output"
+            )
+            response += (
+                f"\n💡 Use interrupt_background_process('{process_id}') to cancel"
+            )
         elif process.status == ProcessStatus.COMPLETED:
-            response += f"\n✅ Process completed successfully"
+            response += "\n✅ Process completed successfully"
         elif process.status == ProcessStatus.FAILED:
-            response += f"\n❌ Process failed - check output for details"
+            response += "\n❌ Process failed - check output for details"
         elif process.status == ProcessStatus.INTERRUPTED:
-            response += f"\n⚠️ Process was interrupted by user"
-        
+            response += "\n⚠️ Process was interrupted by user"
+
         return response
 
     except Exception as e:
@@ -1141,27 +1176,33 @@ def interrupt_background_process(process_id: str) -> str:
         Success message or error message
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     try:
         executor = get_background_executor()
-        
+
         # Check if process exists
         process = executor.get_process(process_id)
         if process is None:
             return f"Error: Process not found: {process_id}"
-        
+
         # Check if process is still running
         if not process.is_running():
-            return f"Process {process_id} is not running (status: {process.status.value})"
-        
+            return (
+                f"Process {process_id} is not running (status: {process.status.value})"
+            )
+
         # Attempt to interrupt
         success = executor.interrupt_process(process_id)
-        
+
         if success:
-            return f"✓ Interrupt signal sent to process: {process_id}\n\n" \
-                   f"The process should stop shortly. Use get_background_status('{process_id}') " \
-                   f"to confirm it has been interrupted."
+            return (
+                f"✓ Interrupt signal sent to process: {process_id}\n\n"
+                f"The process should stop shortly. Use "
+                f"get_background_status('{process_id}') to confirm it has "
+                "been interrupted."
+            )
         else:
             return f"Failed to interrupt process: {process_id}"
 
@@ -1183,45 +1224,49 @@ def get_background_output(process_id: str, lines: int = 50) -> str:
         Process output or error message
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     try:
         executor = get_background_executor()
         process = executor.get_process(process_id)
-        
+
         if process is None:
             return f"Error: Process not found: {process_id}"
-        
+
         # Get recent output lines
         output_lines = process.output_lines
         if not output_lines:
-            return f"No output available for process {process_id} (status: {process.status.value})"
-        
+            return (
+                f"No output available for process {process_id} "
+                f"(status: {process.status.value})"
+            )
+
         # Get the requested number of lines (most recent)
         if lines > 0:
             recent_lines = output_lines[-lines:]
         else:
             recent_lines = output_lines  # All lines if lines <= 0
-        
+
         # Format output response
         response = f"Background Process Output: {process_id}\n"
         response += f"Command: {process.command}\n"
         response += f"Status: {process.status.value}\n"
         response += f"Showing last {len(recent_lines)} of {len(output_lines)} lines:\n"
         response += "─" * 60 + "\n"
-        
+
         for line in recent_lines:
             response += line + "\n"
-        
+
         # Add status information
         response += "─" * 60 + "\n"
         response += f"Total output lines: {len(output_lines)}\n"
-        
+
         if process.is_running():
-            response += f"💡 Process still running - output may continue"
+            response += "💡 Process still running - output may continue"
         else:
             response += f"✅ Process finished (exit code: {process.exit_code})"
-        
+
         return response
 
     except Exception as e:
@@ -1238,25 +1283,26 @@ def list_background_processes() -> str:
         List of all processes with their status
     """
     from .logging import get_logger
+
     logger = get_logger()
 
     try:
         executor = get_background_executor()
         all_processes = executor.list_all_processes()
-        
+
         if not all_processes:
             return "No background processes found"
-        
+
         # Sort by start time (newest first)
         all_processes.sort(key=lambda p: p.start_time or 0, reverse=True)
-        
+
         # Format response
         response = f"Background Processes ({len(all_processes)} total):\n\n"
-        
+
         active_count = 0
         for process in all_processes:
             runtime = process.get_runtime()
-            
+
             # Status emoji
             if process.is_running():
                 status_emoji = "🟢"
@@ -1269,28 +1315,35 @@ def list_background_processes() -> str:
                 status_emoji = "⚠️"
             else:
                 status_emoji = "❓"
-            
+
             response += f"{status_emoji} {process.process_id[:12]}... "
             response += f"({process.status.value})\n"
-            response += f"   Command: {process.command[:60]}{'...' if len(process.command) > 60 else ''}\n"
-            response += f"   Runtime: {runtime:.1f}s | "
-            response += f"Lines: {len(process.output_lines)}"
-            
+            response += (
+                f"   Command: {process.command[:60]}"
+                f"{'...' if len(process.command) > 60 else ''}\n"
+                f"   Runtime: {runtime:.1f}s | "
+                f"Lines: {len(process.output_lines)}"
+            )
+
             if process.exit_code is not None:
                 response += f" | Exit: {process.exit_code}"
-            
-            response += f"\n"
-            
+
+            response += "\n"
+
             if process.start_time:
                 response += f"   Started: {_format_timestamp(process.start_time)}\n"
-            
+
             response += "\n"
-        
-        # Summary
-        response += f"Summary: {active_count} running, {len(all_processes) - active_count} completed\n"
-        response += f"💡 Use get_background_status('process_id') for details\n"
-        response += f"💡 Use interrupt_background_process('process_id') to cancel running processes"
-        
+
+        # Summary of background processes
+        response += (
+            f"Summary: {active_count} running, "
+            f"{len(all_processes) - active_count} completed\n"
+            "💡 Use get_background_status('process_id') for details\n"
+            "💡 Use interrupt_background_process('process_id') "
+            "to cancel running processes"
+        )
+
         return response
 
     except Exception as e:
@@ -1301,14 +1354,14 @@ def list_background_processes() -> str:
 
 def _format_timestamp(timestamp: float) -> str:
     """Format a timestamp for display.
-    
+
     Args:
         timestamp: Unix timestamp
-        
+
     Returns:
         Formatted timestamp string
     """
     import datetime
-    
+
     dt = datetime.datetime.fromtimestamp(timestamp)
     return dt.strftime("%Y-%m-%d %H:%M:%S")

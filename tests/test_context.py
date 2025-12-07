@@ -1,10 +1,5 @@
 """Tests for hierarchical context loading."""
 
-import os
-from pathlib import Path
-
-import pytest
-
 from cdd_agent.context import ContextLoader
 
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+
 # Safe version import with fallback for development mode
 try:
     from . import __version__
@@ -164,7 +165,9 @@ def chat(
 
         # Get effective execution mode (CLI flag > env var > settings > default)
         execution_mode_str = config.get_effective_execution_mode(plan_flag=plan)
-        execution_mode = ExecutionMode.PLAN if execution_mode_str == "plan" else ExecutionMode.NORMAL
+        execution_mode = (
+            ExecutionMode.PLAN if execution_mode_str == "plan" else ExecutionMode.NORMAL
+        )
 
         # Create tool registry with default tools
         tool_registry = create_default_registry()
@@ -370,7 +373,8 @@ def _handle_slash_command(command: str, agent: "Agent", ui: "StreamingUI") -> bo
 
     from rich.markdown import Markdown
 
-    from .slash_commands import get_router, setup_commands
+    from .slash_commands import get_router
+    from .slash_commands import setup_commands
 
     cmd = command.strip().lower()
 
@@ -552,7 +556,9 @@ def set_default(provider: str):
 
 @auth.command(name="test")
 @click.option(
-    "--provider", default=None, help="Provider to test (defaults to default provider)"
+    "--provider",
+    default=None,
+    help="Provider to test (defaults to default provider)",
 )
 def test_auth(provider: str):
     """Test authentication for a provider.
@@ -634,7 +640,14 @@ def _test_anthropic(provider_config) -> bool:
         )
 
         _get_console().print(f"[dim]Model: {provider_config.get_model('small')}[/dim]")
-        _get_console().print(f"[dim]Response: {response.content[0].text}[/dim]")
+        from anthropic.types import TextBlock
+
+        response_text = (
+            response.content[0].text
+            if response.content and isinstance(response.content[0], TextBlock)
+            else "No response"
+        )
+        _get_console().print(f"[dim]Response: {response_text}[/dim]")
         return True
     except Exception as e:
         _get_console().print(f"[dim]Error: {e}[/dim]")
@@ -648,7 +661,8 @@ def _test_openai(provider_config) -> bool:
         import openai
 
         client = openai.OpenAI(
-            api_key=provider_config.get_api_key(), base_url=provider_config.base_url
+            api_key=provider_config.get_api_key(),
+            base_url=provider_config.base_url,
         )
 
         response = client.chat.completions.create(
@@ -699,7 +713,8 @@ def show_logs(lines: int, follow: bool):
         cdd-agent logs show -n 100       # Last 100 lines
         cdd-agent logs show -f           # Follow logs (Ctrl+C to exit)
     """
-    from .logging import get_log_file_path, read_recent_logs
+    from .logging import get_log_file_path
+    from .logging import read_recent_logs
 
     log_file = get_log_file_path()
 

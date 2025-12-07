@@ -8,11 +8,13 @@ Based on OpenCode's implementation (opencode-anthropic-auth@0.0.2).
 
 import secrets
 import time
-from typing import Optional, Tuple
+from typing import Optional
+from typing import Tuple
 from urllib.parse import urlencode
 
 import httpx
 from authlib.oauth2.rfc7636 import create_s256_code_challenge
+
 
 # Anthropic OAuth configuration
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -217,7 +219,7 @@ class AnthropicOAuth:
                     return None
 
                 data = response.json()
-                return data.get("raw_key")
+                return str(data.get("raw_key")) if data.get("raw_key") else None
 
         except Exception:
             return None
