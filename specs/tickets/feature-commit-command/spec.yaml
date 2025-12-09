@@ -1,0 +1,37 @@
+# Feature Ticket Template
+# IMPORTANT: Only include information explicitly discussed with the user.
+# Delete any section that was not covered in the conversation.
+# Do NOT invent details, estimates, or technical assumptions.
+
+title: "Automated Git Commit Command"
+
+type: feature
+
+description: |
+  A new command to automate git commit flows, improving the user experience. The command analyzes staged changes and proposes a conventional commit message. The user can then accept, revise, or abort the commit. The revision process is a structured loop where the user provides feedback, and the agent either applies the changes or asks for clarification if the instructions are ambiguous. Aborting the process unstages all files.
+
+acceptance_criteria:
+  - The agent proposes a conventional commit message for staged changes.
+  - The user can accept the proposed message to commit and push.
+  - The user can abort the process, which unstages all files.
+  - The user can provide revision instructions for the commit message.
+  - The revision loop is not an ongoing conversation, but a series of distinct iterations.
+  - The agent applies clear revision instructions and shows the result.
+  - The agent asks for clarification if revision instructions are ambiguous.
+  - The agent follows existing codebase patterns for commands.
+
+implementation_scope:
+  backend:
+    - Add a new command to handle the automated commit flow.
+    - Implement logic to analyze staged changes and generate a commit message.
+    - Create the interactive Accept/Revise/Abort prompt.
+    - Implement the revision loop with clarification logic.
+    - Ensure aborting the command unstages files.
+
+technical_notes: |
+  The agent should use the conventional commit format (type(scope): description).
+  The command should be non-breaking and include a `--abort` option for safety.
+  The agent is responsible for determining if revision instructions are clear or if clarification is needed.
+  The implementation must follow existing patterns in the codebase.
+
+priority: ""
