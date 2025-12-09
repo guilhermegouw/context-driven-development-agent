@@ -1,15 +1,21 @@
 """Commit slash command - Automated git commit with AI-generated messages.
 
 This command analyzes staged changes and generates conventional commit messages,
-with options to accept, revise, or abort.
+with interactive choice selection for accept/edit/abort actions.
 """
 
 import logging
 import subprocess
+from typing import Callable
+from typing import Optional
 
 from .base import BaseSlashCommand
 
+
 logger = logging.getLogger(__name__)
+
+# Type alias for choice callback
+ChoiceCallback = Callable[[str, list, Optional[Callable]], None]
 
 
 class CommitCommand(BaseSlashCommand):
@@ -18,16 +24,17 @@ class CommitCommand(BaseSlashCommand):
     This command:
     1. Analyzes staged changes via git diff --cached
     2. Generates a conventional commit message using the LLM
-    3. Allows user to accept, revise, or abort
+    3. Shows interactive choices: Accept, Edit, Abort
     4. Executes git commit when approved
 
     Usage:
         /commit           - Generate commit message for staged changes
         /commit --push    - Commit and push after approval
         /commit --abort   - Unstage all files
-
-    The revision loop allows iterating on the commit message until satisfied.
     """
+
+    # Class-level pending commit state for TUI interaction
+    _pending_commit: Optional["CommitCommand"] = None
 
     def __init__(self):
         """Initialize command metadata."""
@@ -40,21 +47,23 @@ class CommitCommand(BaseSlashCommand):
             "/commit --push",
             "/commit --abort",
         ]
-        # State for revision loop
+        # State for commit flow
         self._current_message = ""
-        self._staged_changes = ""
+        self._staged_files: list[dict] = []  # List of {path, insertions, deletions}
+        self._staged_diff = ""  # Keep diff for LLM context
         self._should_push = False
-        self._awaiting_response = False
-        self._response_type = None  # "action" or "revision"
+        self._awaiting_choice = False
+        # Callback for showing choices in TUI
+        self._choice_callback: Optional[ChoiceCallback] = None
 
     async def execute(self, args: str) -> str:
         """Execute the /commit command.
 
         Args:
-            args: Command arguments (--push, --abort, or revision instructions)
+            args: Command arguments (--push, --abort, or action response)
 
         Returns:
-            Result message with commit status or prompt for action
+            Result message with commit status or formatted proposal
         """
         logger.info(f"Executing /commit command with args: {args}")
 
@@ -69,9 +78,9 @@ class CommitCommand(BaseSlashCommand):
             self._should_push = True
             args = args.replace("--push", "").replace("--Push", "").strip()
 
-        # If we're awaiting a response from user
-        if self._awaiting_response:
-            return await self._handle_user_response(args)
+        # Handle user action responses (from TUI or text input)
+        if self._awaiting_choice and args.strip():
+            return await self._handle_action(args.strip())
 
         # Start fresh commit flow
         return await self._start_commit_flow()
@@ -85,69 +94,182 @@ class CommitCommand(BaseSlashCommand):
                 "Use `git add <files>` to stage changes first, then run `/commit`."
             )
 
-        # Get staged changes
-        self._staged_changes = self._get_staged_diff()
-        if not self._staged_changes:
-            return "**Error:** Failed to get staged changes."
+        # Get staged file list with stats
+        self._staged_files = self._get_staged_files_with_stats()
+        if not self._staged_files:
+            return "**Error:** Failed to get staged file information."
+
+        # Get diff for LLM context (but don't display it)
+        self._staged_diff = self._get_staged_diff()
 
         # Generate commit message using the session's agent
         self._current_message = await self._generate_commit_message()
 
-        # Set up for user response
-        self._awaiting_response = True
-        self._response_type = "action"
+        # Check if we're in TUI mode with interactive selection
+        tui_app = self._get_tui_app()
+        if tui_app is not None:
+            # Use TUI's interactive selection
+            return await self._interactive_commit_flow(tui_app)
 
-        # Format the proposal
+        # Fallback to text-based flow
+        self._awaiting_choice = True
+        CommitCommand._pending_commit = self
         return self._format_proposal()
 
-    def _format_proposal(self) -> str:
-        """Format the commit message proposal for display."""
-        # Truncate diff for display
-        diff_preview = self._staged_changes[:1500]
-        if len(self._staged_changes) > 1500:
-            diff_preview += "\n... (truncated)"
+    def _get_tui_app(self):
+        """Get the TUI app if running in TUI mode."""
+        if self.session and hasattr(self.session, "_tui_app"):
+            return self.session._tui_app
+        return None
 
-        push_note = " **and push**" if self._should_push else ""
+    async def _interactive_commit_flow(self, tui_app) -> str:
+        """Run commit flow with TUI interactive selection."""
+        import asyncio
+
+        while True:
+            # Show file list in chat first
+            proposal = self._format_proposal_for_tui()
+
+            # Get user choice via TUI selector (run in thread to not block)
+            loop = asyncio.get_event_loop()
+            choice = await loop.run_in_executor(
+                None,
+                tui_app.show_commit_selection,
+                self._current_message,
+                self._staged_files,
+                self._should_push,
+            )
+
+            if choice == "accept":
+                return await self._execute_commit()
+            elif choice == "cancel":
+                return await self._handle_abort()
+            elif choice == "edit":
+                # For edit, we need to get revision instructions
+                # Return a prompt and set state for next input
+                self._awaiting_choice = True
+                CommitCommand._pending_commit = self
+                return (
+                    f"{proposal}\n\n"
+                    "**Enter your revision instructions:**\n\n"
+                    "Examples:\n"
+                    "  • `use feat type instead of chore`\n"
+                    "  • `add (auth) scope`\n"
+                    "  • `make it shorter`"
+                )
+
+    def _format_proposal_for_tui(self) -> str:
+        """Format proposal for TUI display (without action line)."""
+        file_lines = []
+        total_insertions = 0
+        total_deletions = 0
+
+        for file_info in self._staged_files:
+            path = file_info["path"]
+            insertions = file_info.get("insertions", 0)
+            deletions = file_info.get("deletions", 0)
+            total_insertions += insertions
+            total_deletions += deletions
+
+            stats_parts = []
+            if insertions > 0:
+                stats_parts.append(f"+{insertions}")
+            if deletions > 0:
+                stats_parts.append(f"-{deletions}")
+            stats = f" ({', '.join(stats_parts)})" if stats_parts else ""
+            file_lines.append(f"  • {path}{stats}")
+
+        files_display = "\n".join(file_lines)
+
+        file_count = len(self._staged_files)
+        summary = f"{file_count} file{'s' if file_count != 1 else ''}"
+        if total_insertions > 0 or total_deletions > 0:
+            summary += f" | +{total_insertions} -{total_deletions}"
 
         return (
             f"**Proposed commit message:**\n\n"
             f"```\n{self._current_message}\n```\n\n"
-            f"**Staged changes preview:**\n"
-            f"```diff\n{diff_preview}\n```\n\n"
-            f"---\n"
-            f"**Choose an action:**\n"
-            f"- Type `accept` to commit{push_note} with this message\n"
-            f"- Type `abort` to unstage all files and cancel\n"
-            f"- Type your revision instructions to modify the message\n\n"
-            f"*Example revisions: 'use feat type', 'add auth scope', "
-            f"'make it shorter'*"
+            f"**Staged files** ({summary}):\n{files_display}"
         )
 
-    async def _handle_user_response(self, response: str) -> str:
-        """Handle user's response to the commit proposal."""
-        response_lower = response.strip().lower()
+    def _format_proposal(self) -> str:
+        """Format the commit message proposal for display."""
+        # Format file list with stats
+        file_lines = []
+        total_insertions = 0
+        total_deletions = 0
+
+        for file_info in self._staged_files:
+            path = file_info["path"]
+            insertions = file_info.get("insertions", 0)
+            deletions = file_info.get("deletions", 0)
+            total_insertions += insertions
+            total_deletions += deletions
+
+            # Format: filename (+insertions, -deletions)
+            stats_parts = []
+            if insertions > 0:
+                stats_parts.append(f"+{insertions}")
+            if deletions > 0:
+                stats_parts.append(f"-{deletions}")
+            stats = f" ({', '.join(stats_parts)})" if stats_parts else ""
+            file_lines.append(f"  • {path}{stats}")
+
+        files_display = "\n".join(file_lines)
+
+        # Summary line
+        file_count = len(self._staged_files)
+        summary = f"{file_count} file{'s' if file_count != 1 else ''}"
+        if total_insertions > 0 or total_deletions > 0:
+            summary += f" | +{total_insertions} -{total_deletions}"
+
+        push_note = " and push" if self._should_push else ""
+
+        return (
+            f"**Proposed commit message:**\n\n"
+            f"```\n{self._current_message}\n```\n\n"
+            f"**Staged files** ({summary}):\n{files_display}\n\n"
+            f"---\n"
+            f"**Actions:** "
+            f"`[A]ccept` to commit{push_note} • "
+            f"`[E]dit` to revise message • "
+            f"`[C]ancel` to abort"
+        )
+
+    async def _handle_action(self, action: str) -> str:
+        """Handle user action from choice selection or text input.
+
+        Args:
+            action: Action string - 'accept'/'a', 'edit'/'e', 'cancel'/'c',
+                   or revision text if starts with 'edit:'
+        """
+        action_lower = action.lower().strip()
 
         # Handle accept
-        if response_lower in ["accept", "yes", "y", "ok", "confirm"]:
-            self._awaiting_response = False
+        if action_lower in ["accept", "a", "yes", "y", "ok"]:
+            self._awaiting_choice = False
+            CommitCommand._pending_commit = None
             return await self._execute_commit()
 
-        # Handle abort
-        if response_lower in ["abort", "cancel", "no", "n"]:
-            self._awaiting_response = False
+        # Handle cancel/abort
+        if action_lower in ["cancel", "c", "abort", "no", "n"]:
+            self._awaiting_choice = False
+            CommitCommand._pending_commit = None
             return await self._handle_abort()
 
-        # Handle revision instructions
-        if response.strip():
-            return await self._revise_message(response)
+        # Handle edit - if just 'edit' or 'e', prompt for instructions
+        if action_lower in ["edit", "e"]:
+            return (
+                "**Enter your revision instructions:**\n\n"
+                "Examples:\n"
+                "  • `use feat type instead of chore`\n"
+                "  • `add (auth) scope`\n"
+                "  • `make it shorter`\n"
+                "  • `mention the bug fix for login`"
+            )
 
-        # Empty response
-        return (
-            "**Please provide a valid response:**\n"
-            "- `accept` - Commit with the proposed message\n"
-            "- `abort` - Cancel and unstage files\n"
-            "- Or type revision instructions"
-        )
+        # Handle revision instructions (any other text)
+        return await self._revise_message(action)
 
     async def _revise_message(self, instructions: str) -> str:
         """Revise the commit message based on user instructions."""
@@ -156,9 +278,9 @@ class CommitCommand(BaseSlashCommand):
         # Generate revised message
         self._current_message = await self._generate_revised_message(instructions)
 
-        # Keep awaiting response
-        self._awaiting_response = True
-        self._response_type = "action"
+        # Keep awaiting choice
+        self._awaiting_choice = True
+        CommitCommand._pending_commit = self
 
         return self._format_proposal()
 
@@ -246,10 +368,11 @@ class CommitCommand(BaseSlashCommand):
     def _reset_state(self):
         """Reset command state."""
         self._current_message = ""
-        self._staged_changes = ""
+        self._staged_files = []
+        self._staged_diff = ""
         self._should_push = False
-        self._awaiting_response = False
-        self._response_type = None
+        self._awaiting_choice = False
+        CommitCommand._pending_commit = None
 
     def _has_staged_changes(self) -> bool:
         """Check if there are staged changes."""
@@ -262,6 +385,55 @@ class CommitCommand(BaseSlashCommand):
             return result.returncode != 0
         except Exception:
             return False
+
+    def _get_staged_files_with_stats(self) -> list[dict]:
+        """Get list of staged files with insertion/deletion stats.
+
+        Returns:
+            List of dicts with {path, insertions, deletions}
+        """
+        try:
+            # Get file stats using --numstat
+            result = subprocess.run(
+                ["git", "diff", "--cached", "--numstat"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            files = []
+            for line in result.stdout.strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    insertions = int(parts[0]) if parts[0] != "-" else 0
+                    deletions = int(parts[1]) if parts[1] != "-" else 0
+                    path = parts[2]
+                    files.append({
+                        "path": path,
+                        "insertions": insertions,
+                        "deletions": deletions,
+                    })
+
+            return files
+        except Exception as e:
+            logger.error(f"Failed to get staged files: {e}")
+            # Fallback to just file names
+            try:
+                result = subprocess.run(
+                    ["git", "diff", "--cached", "--name-only"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                return [
+                    {"path": f, "insertions": 0, "deletions": 0}
+                    for f in result.stdout.strip().split("\n")
+                    if f
+                ]
+            except Exception:
+                return []
 
     def _get_staged_diff(self) -> str:
         """Get the staged changes diff."""
@@ -292,18 +464,22 @@ class CommitCommand(BaseSlashCommand):
                 "Types: feat, fix, docs, style, refactor, test, chore\n"
                 "Keep under 72 characters. Be concise but descriptive.\n"
                 "Return ONLY the commit message, nothing else.\n\n"
-                f"Changes:\n{self._staged_changes[:4000]}"
+                f"Changes:\n{self._staged_diff[:4000]}"
             )
 
             # Use the agent to generate
             messages = [{"role": "user", "content": prompt}]
             model = agent.provider_config.get_model(agent.model_tier)
 
+            system_prompt = (
+                "You are a git commit message generator. "
+                "Output only the commit message."
+            )
             response = agent.client.messages.create(
                 model=model,
                 max_tokens=200,
                 messages=messages,
-                system="You are a git commit message generator. Output only the commit message.",
+                system=system_prompt,
             )
 
             # Extract text from response
@@ -342,11 +518,15 @@ class CommitCommand(BaseSlashCommand):
             messages = [{"role": "user", "content": prompt}]
             model = agent.provider_config.get_model(agent.model_tier)
 
+            system_prompt = (
+                "You are a git commit message generator. "
+                "Output only the commit message."
+            )
             response = agent.client.messages.create(
                 model=model,
                 max_tokens=200,
                 messages=messages,
-                system="You are a git commit message generator. Output only the commit message.",
+                system=system_prompt,
             )
 
             if response.content:
