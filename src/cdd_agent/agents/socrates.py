@@ -357,9 +357,7 @@ class SocratesAgent(BaseAgent):
                     logger.info(f"Tool use iteration {iteration}")
 
                     # Add assistant's response to messages
-                    messages.append(
-                        {"role": "assistant", "content": response.content}
-                    )
+                    messages.append({"role": "assistant", "content": response.content})
 
                     # Execute tools and collect results
                     tool_results = []
@@ -381,21 +379,23 @@ class SocratesAgent(BaseAgent):
                             )
                             self.total_explorations += 1
 
-                    # Add tool results as user message
-                    messages.append({"role": "user", "content": tool_results})
+                    # Add tool results as user message (content can be list)
+                    messages.append(
+                        {"role": "user", "content": tool_results}  # type: ignore[dict-item]
+                    )
 
                     # Continue conversation
                     response = agent.client.messages.create(**request_params)
 
                 # === LOG RESPONSE TYPE ===
                 logger.info(f"Response type: {type(response)}")
-                content = getattr(response, "content", [])
-                content_len = len(content) if content is not None else 0
-                logger.info(f"Response content blocks: {content_len}")
+                content_raw = getattr(response, "content", [])
+                content_list: list = list(content_raw) if content_raw else []
+                logger.info(f"Response content blocks: {len(content_list)}")
 
                 # Safe block iteration - extract text from final response
-                text_parts = []
-                for i, block in enumerate(content or []):
+                text_parts: list[str] = []
+                for i, block in enumerate(content_list):
                     block_type = type(block).__name__
                     logger.info(f"Block {i} type: {block_type}")
 
@@ -404,18 +404,18 @@ class SocratesAgent(BaseAgent):
 
                     # Safe text extraction
                     if hasattr(block, "text"):
-                        text_parts.append(block.text)
+                        text_parts.append(str(block.text))
                     elif isinstance(block, dict) and "text" in block:
-                        text_parts.append(block["text"])
+                        text_parts.append(str(block["text"]))
 
                 # Handle empty content case
-                result = "\n".join(text_parts).strip() if text_parts else ""
+                result_text: str = "\n".join(text_parts).strip() if text_parts else ""
 
-                logger.info(f"Final response length: {len(result)} chars")
-                logger.info(f"Final response preview: {result[:300]}...")
+                logger.info(f"Final response length: {len(result_text)} chars")
+                logger.info(f"Final response preview: {result_text[:300]}...")
                 logger.info("=" * 60)
 
-                return result
+                return result_text
             except Exception as e:
                 logger.error(f"LLM call failed: {e}", exc_info=True)
                 return self._fallback_response(user_input)

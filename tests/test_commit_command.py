@@ -9,9 +9,10 @@ This module tests:
 - Git operation execution
 """
 
-import subprocess
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 
@@ -82,8 +83,7 @@ class TestCommitCommandStagedFilesWithStats(unittest.TestCase):
     def test_get_staged_files_with_stats(self, mock_run):
         """Test getting staged files with insertion/deletion stats."""
         mock_run.return_value = Mock(
-            stdout="10\t5\tsrc/main.py\n20\t0\tsrc/utils.py\n",
-            returncode=0
+            stdout="10\t5\tsrc/main.py\n20\t0\tsrc/utils.py\n", returncode=0
         )
         result = self.command._get_staged_files_with_stats()
 
@@ -99,8 +99,7 @@ class TestCommitCommandStagedFilesWithStats(unittest.TestCase):
     def test_get_staged_files_binary_file(self, mock_run):
         """Test handling binary files (shown as - in git numstat)."""
         mock_run.return_value = Mock(
-            stdout="-\t-\timage.png\n5\t2\tREADME.md\n",
-            returncode=0
+            stdout="-\t-\timage.png\n5\t2\tREADME.md\n", returncode=0
         )
         result = self.command._get_staged_files_with_stats()
 
@@ -149,7 +148,9 @@ class TestCommitCommandSimpleMessage(unittest.TestCase):
     @patch("subprocess.run")
     def test_simple_message_multiple_files(self, mock_run):
         """Test simple message for multiple files."""
-        mock_run.return_value = Mock(stdout="file1.py\nfile2.py\nfile3.py\n", returncode=0)
+        mock_run.return_value = Mock(
+            stdout="file1.py\nfile2.py\nfile3.py\n", returncode=0
+        )
         result = self.command._simple_commit_message()
         self.assertIn("3 files", result)
         self.assertTrue(result.startswith("chore:"))
@@ -235,7 +236,9 @@ class TestCommitCommandExecute:
     @patch.object(CommitCommand, "_get_staged_files_with_stats")
     @patch.object(CommitCommand, "_get_staged_diff")
     @patch.object(CommitCommand, "_generate_commit_message")
-    async def test_starts_commit_flow(self, mock_generate, mock_diff, mock_files, mock_has_staged):
+    async def test_starts_commit_flow(
+        self, mock_generate, mock_diff, mock_files, mock_has_staged
+    ):
         """Test execute starts commit flow with staged changes."""
         mock_has_staged.return_value = True
         mock_files.return_value = [{"path": "test.py", "insertions": 5, "deletions": 2}]
@@ -263,7 +266,9 @@ class TestCommitCommandExecute:
     @patch.object(CommitCommand, "_get_staged_files_with_stats")
     @patch.object(CommitCommand, "_get_staged_diff")
     @patch.object(CommitCommand, "_generate_commit_message")
-    async def test_push_flag_sets_state(self, mock_generate, mock_diff, mock_files, mock_has_staged):
+    async def test_push_flag_sets_state(
+        self, mock_generate, mock_diff, mock_files, mock_has_staged
+    ):
         """Test --push flag sets should_push state."""
         mock_has_staged.return_value = True
         mock_files.return_value = [{"path": "test.py", "insertions": 1, "deletions": 0}]
@@ -284,7 +289,9 @@ class TestCommitCommandActions:
         self.command = CommitCommand()
         self.command._awaiting_choice = True
         self.command._current_message = "feat: test commit"
-        self.command._staged_files = [{"path": "test.py", "insertions": 5, "deletions": 2}]
+        self.command._staged_files = [
+            {"path": "test.py", "insertions": 5, "deletions": 2}
+        ]
         self.command._staged_diff = "diff content"
         CommitCommand._pending_commit = self.command
 
@@ -453,7 +460,9 @@ class TestCommitCommandState(unittest.TestCase):
         """Test state reset."""
         # Set some state
         self.command._current_message = "test"
-        self.command._staged_files = [{"path": "test.py", "insertions": 1, "deletions": 0}]
+        self.command._staged_files = [
+            {"path": "test.py", "insertions": 1, "deletions": 0}
+        ]
         self.command._staged_diff = "diff"
         self.command._should_push = True
         self.command._awaiting_choice = True

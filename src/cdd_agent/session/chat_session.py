@@ -59,6 +59,9 @@ class ChatSession:
         self.context = None  # Loaded from CDD.md (future enhancement)
         self.current_ticket: Optional[Path] = None  # Track active ticket
 
+        # TUI reference (set by CDDAgentTUI for interactive commands)
+        self._tui_app: Optional[Any] = None
+
     def is_in_agent_mode(self) -> bool:
         """Check if a specialized agent is active.
 

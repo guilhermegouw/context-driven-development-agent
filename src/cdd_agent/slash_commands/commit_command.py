@@ -48,11 +48,11 @@ class CommitCommand(BaseSlashCommand):
             "/commit --abort",
         ]
         # State for commit flow
-        self._current_message = ""
+        self._current_message: str = ""
         self._staged_files: list[dict] = []  # List of {path, insertions, deletions}
-        self._staged_diff = ""  # Keep diff for LLM context
-        self._should_push = False
-        self._awaiting_choice = False
+        self._staged_diff: str = ""  # Keep diff for LLM context
+        self._should_push: bool = False
+        self._awaiting_choice: bool = False
         # Callback for showing choices in TUI
         self._choice_callback: Optional[ChoiceCallback] = None
 
@@ -352,10 +352,7 @@ class CommitCommand(BaseSlashCommand):
             )
 
             if result.returncode != 0:
-                return (
-                    f"**Error unstaging files:**\n\n"
-                    f"```\n{result.stderr}\n```"
-                )
+                return f"**Error unstaging files:**\n\n" f"```\n{result.stderr}\n```"
 
             return "**Commit aborted.** All files have been unstaged."
 
@@ -410,11 +407,13 @@ class CommitCommand(BaseSlashCommand):
                     insertions = int(parts[0]) if parts[0] != "-" else 0
                     deletions = int(parts[1]) if parts[1] != "-" else 0
                     path = parts[2]
-                    files.append({
-                        "path": path,
-                        "insertions": insertions,
-                        "deletions": deletions,
-                    })
+                    files.append(
+                        {
+                            "path": path,
+                            "insertions": insertions,
+                            "deletions": deletions,
+                        }
+                    )
 
             return files
         except Exception as e:
@@ -486,7 +485,7 @@ class CommitCommand(BaseSlashCommand):
             if response.content:
                 for block in response.content:
                     if hasattr(block, "text"):
-                        msg = block.text.strip()
+                        msg: str = str(block.text).strip()
                         # Clean up - take first line only
                         msg = msg.split("\n")[0].strip()
                         # Remove quotes if present
@@ -532,7 +531,7 @@ class CommitCommand(BaseSlashCommand):
             if response.content:
                 for block in response.content:
                     if hasattr(block, "text"):
-                        msg = block.text.strip()
+                        msg: str = str(block.text).strip()
                         msg = msg.split("\n")[0].strip()
                         msg = msg.strip('"').strip("'")
                         return msg
