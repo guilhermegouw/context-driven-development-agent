@@ -1,4 +1,4 @@
-.PHONY: help check-python install test test-cov lint lint-fix format format-check typecheck qa clean dev setup-hooks
+.PHONY: help check-python install test test-cov lint lint-fix format format-check typecheck qa clean dev
 
 # Colors for output
 BLUE := \033[0;34m
@@ -31,7 +31,6 @@ install: check-python ## Install dependencies with Poetry
 	@echo "$(BLUE)Installing dependencies...$(NC)"
 	poetry install
 	@echo "$(GREEN)✓ Dependencies installed$(NC)"
-	@$(MAKE) setup-hooks
 
 test: check-python ## Run test suite
 	@echo "$(BLUE)Running tests...$(NC)"
@@ -75,9 +74,6 @@ clean: ## Clean up cache files and build artifacts
 	find . -type f -name "*.pyc" -delete
 	rm -rf dist/ build/ .coverage htmlcov/
 	@echo "$(GREEN)✓ Cleaned up$(NC)"
-
-setup-hooks: ## Setup git pre-commit hooks
-	@bash setup-hooks.sh
 
 dev: install ## Setup development environment
 	@echo "$(GREEN)✓ Development environment ready!$(NC)"
