@@ -46,17 +46,30 @@ class OAuthTransport:
         Returns:
             HTTP response
         """
-        # Remove x-api-key header if present
+        # Remove x-api-key header if present (SDK adds it by default)
         if "x-api-key" in request.headers:
             del request.headers["x-api-key"]
+
+        # Remove x-stainless-* headers that identify this as the Python SDK
+        # OAuth tokens may be restricted to specific client types
+        headers_to_remove = [
+            k for k in request.headers.keys() if k.lower().startswith("x-stainless")
+        ]
+        for header in headers_to_remove:
+            del request.headers[header]
+
+        # Set User-Agent similar to AI SDK
+        request.headers["User-Agent"] = "ai-sdk/anthropic"
 
         # Add OAuth Bearer token
         request.headers["Authorization"] = f"Bearer {self.access_token}"
 
-        # Add required OAuth beta header
+        # Add required OAuth beta headers (matching OpenCode's implementation)
         request.headers["anthropic-beta"] = (
-            "oauth-2025-04-20,claude-code-20250219,"
-            "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+            "oauth-2025-04-20,"
+            "claude-code-20250219,"
+            "interleaved-thinking-2025-05-14,"
+            "fine-grained-tool-streaming-2025-05-14"
         )
 
         return self._transport.handle_request(request)

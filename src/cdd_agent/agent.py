@@ -29,6 +29,7 @@ from .logging import get_logger
 from .prompts import PAIR_CODING_SYSTEM_PROMPT
 from .prompts import REFLECTION_PROMPT
 from .prompts import REFLECTION_SYSTEM_PROMPT
+from .prompts import build_oauth_system_prompt
 from .providers import create_provider
 from .providers.factory import is_oauth_provider
 from .tool_executor import ToolExecutor
@@ -91,6 +92,9 @@ class Agent:
         self._formatter = ToolResultFormatter()
 
         # Build system prompt (project context will be injected into first message)
+        # For OAuth: system prompt must be an array with Claude Code header
+        # Check if this provider config uses OAuth (has oauth tokens set)
+        self._uses_oauth = getattr(provider_config, "oauth", None) is not None
         self.system_prompt = PAIR_CODING_SYSTEM_PROMPT
 
         # Create background process manager
@@ -108,6 +112,23 @@ class Agent:
         from .background_executor import get_background_executor
 
         self.background_executor = get_background_executor
+
+    def _get_system_prompt(self, custom_prompt: Optional[str] = None) -> Any:
+        """Get system prompt in correct format for the provider.
+
+        For OAuth providers, returns an array with Claude Code header as first block.
+        For other providers, returns the prompt as a string.
+
+        Args:
+            custom_prompt: Optional custom prompt to use instead of default
+
+        Returns:
+            System prompt in correct format (str or list of content blocks)
+        """
+        prompt = custom_prompt or self.system_prompt
+        if self._uses_oauth:
+            return build_oauth_system_prompt(prompt)
+        return prompt
 
     @property
     def client(self):
@@ -245,7 +266,7 @@ class Agent:
                     tools=self.tool_registry.get_schemas(
                         include_risk_level=include_risk, read_only=read_only
                     ),
-                    system=system_prompt or self.system_prompt,
+                    system=self._get_system_prompt(system_prompt),
                     max_tokens=4096,
                 )
                 logger.debug(f"API response: stop_reason={response.stop_reason}")
@@ -434,7 +455,7 @@ class Agent:
                     tools=self.tool_registry.get_schemas(
                         include_risk_level=include_risk, read_only=read_only
                     ),
-                    system=system_prompt or self.system_prompt,
+                    system=self._get_system_prompt(system_prompt),
                 ) as stream:
                     # Accumulate response
                     accumulated_text = []
@@ -692,6 +713,9 @@ class SimpleAgent:
             model_tier=model_tier,
         )
 
+        # Check if this provider uses OAuth
+        self._uses_oauth = getattr(provider_config, "oauth", None) is not None
+
     @property
     def client(self):
         """Get the underlying LLM client from the provider.
@@ -700,6 +724,23 @@ class SimpleAgent:
             The provider's LLM client
         """
         return self._provider.client
+
+    def _get_system_prompt(self, custom_prompt: Optional[str] = None) -> Any:
+        """Get system prompt in correct format for the provider.
+
+        For OAuth providers, returns an array with Claude Code header as first block.
+        For other providers, returns the prompt as a string.
+
+        Args:
+            custom_prompt: Optional custom prompt to use
+
+        Returns:
+            System prompt in correct format (str or list of content blocks)
+        """
+        prompt = custom_prompt or "You are a helpful assistant."
+        if self._uses_oauth:
+            return build_oauth_system_prompt(prompt)
+        return prompt
 
     def run(self, user_message: str, system_prompt: Optional[str] = None) -> str:
         """Run a simple conversation without tools.
@@ -714,7 +755,7 @@ class SimpleAgent:
         response = self._provider.create_message(
             messages=[{"role": "user", "content": user_message}],
             tools=[],
-            system=system_prompt or "You are a helpful assistant.",
+            system=self._get_system_prompt(system_prompt),
             max_tokens=1024,
         )
 

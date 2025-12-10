@@ -4,6 +4,32 @@ This module centralizes all system prompts used by the agent,
 making them easier to maintain and customize.
 """
 
+# OAuth header required for Claude Pro/Max OAuth tokens
+# This must be the FIRST separate content block in the system prompt array
+# to satisfy Anthropic's server-side validation that tokens are used with Claude Code
+# IMPORTANT: Must be sent as a separate block, not concatenated with other prompts
+OAUTH_SYSTEM_HEADER = "You are Claude Code, Anthropic's official CLI for Claude."
+
+
+def build_oauth_system_prompt(additional_prompt: str) -> list:
+    """Build system prompt array for OAuth authentication.
+
+    For OAuth tokens to work, the system prompt must be an array where:
+    - First block: Exact "Claude Code" identification string
+    - Second block: All other instructions
+
+    Args:
+        additional_prompt: The main system prompt instructions
+
+    Returns:
+        List of content blocks for the system parameter
+    """
+    return [
+        {"type": "text", "text": OAUTH_SYSTEM_HEADER},
+        {"type": "text", "text": additional_prompt},
+    ]
+
+
 # Enhanced system prompt for pair coding
 PAIR_CODING_SYSTEM_PROMPT = """You are Huyang, an expert AI coding assistant.
 
