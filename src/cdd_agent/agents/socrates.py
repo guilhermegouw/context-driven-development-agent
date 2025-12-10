@@ -11,6 +11,7 @@ Optimized for weaker LLMs (GLM 4.6, Minimax M2) with:
 """
 
 import logging
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
@@ -117,6 +118,7 @@ class SocratesAgent(BaseAgent):
             },
             "edge_cases": [],
             "gaps": [],  # What we still need to ask about
+            "codebase_discoveries": [],  # What we found while exploring
         }
 
         # Conversation tracking
@@ -126,6 +128,20 @@ class SocratesAgent(BaseAgent):
         # Content handoff (for Writer agent)
         self.generated_content: str = ""  # Generated spec/doc content
         self.ready_to_save: bool = False  # Ready to hand off to Writer
+
+        # Codebase exploration context
+        self.codebase_context: dict = {
+            "structure": "",  # File tree output
+            "relevant_files": {},  # path -> description
+            "patterns_found": [],  # Existing patterns related to topic
+            "exploration_log": [],  # Track what was explored
+        }
+
+        # Exploration configuration
+        self.exploration_enabled: bool = True
+        self.max_tool_iterations: int = 6  # Safety guard for tool loop
+        self.total_explorations: int = 0  # Track total explorations this session
+        self.max_session_explorations: int = 30  # Soft limit per session
 
     def initialize(self) -> str:
         """Load context and start Socratic dialogue.
@@ -157,6 +173,9 @@ class SocratesAgent(BaseAgent):
             # Step 5: Load appropriate template
             self.template_content = self._load_template()
             logger.info(f"Loaded template for {self.document_type}")
+
+            # Step 5.5: Explore codebase for context
+            self._perform_pre_dialogue_exploration()
 
             # Step 6: Synthesize context and present to user
             greeting = self._synthesize_context()
@@ -298,32 +317,85 @@ class SocratesAgent(BaseAgent):
                 logger.info(f"Model: {model}")
                 logger.info(f"Number of messages: {len(messages)}")
                 for i, msg in enumerate(messages):
-                    content_preview = msg.get("content", "")[:200]
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        content_preview = content[:200]
+                    else:
+                        content_preview = str(content)[:200]
                     logger.info(
                         f"Message {i} [{msg.get('role')}]: {content_preview}..."
                     )
                 logger.info("-" * 60)
-                logger.info("IMPORTANT: Calling LLM WITHOUT tools parameter")
+
+                # Build request params - conditionally include tools
+                enable_tools = self._should_enable_tools(user_input)
+                request_params = {
+                    "model": model,
+                    "max_tokens": 4096,
+                    "messages": messages,
+                    "system": system_prompt,
+                }
+
+                if enable_tools:
+                    request_params["tools"] = self.tool_registry.get_schemas()
+                    logger.info("Tools ENABLED for this turn (exploration triggered)")
+                else:
+                    logger.info("Tools DISABLED for this turn")
+
                 logger.info("=" * 60)
 
-                # Call LLM WITHOUT tools (Socrates only asks questions)
-                response = agent.client.messages.create(
-                    model=model,
-                    max_tokens=4096,
-                    messages=messages,
-                    system=system_prompt,
-                    # CRITICAL: No tools parameter! Socrates doesn't implement.
-                )
+                # Make initial LLM call
+                response = agent.client.messages.create(**request_params)
+
+                # Handle tool use responses - let model explore as needed
+                iteration = 0
+                while (
+                    response.stop_reason == "tool_use"
+                    and iteration < self.max_tool_iterations
+                ):
+                    iteration += 1
+                    logger.info(f"Tool use iteration {iteration}")
+
+                    # Add assistant's response to messages
+                    messages.append({"role": "assistant", "content": response.content})
+
+                    # Execute tools and collect results
+                    tool_results = []
+                    for block in response.content:
+                        if hasattr(block, "type") and block.type == "tool_use":
+                            logger.info(f"Executing tool: {block.name}")
+                            result = self._execute_exploration_tool(
+                                block.name, block.input, block.id
+                            )
+                            tool_results.append(result)
+
+                            # Log discovery and increment counter
+                            self.gathered_info["codebase_discoveries"].append(
+                                {
+                                    "tool": block.name,
+                                    "args": block.input,
+                                    "turn": self.turn_count,
+                                }
+                            )
+                            self.total_explorations += 1
+
+                    # Add tool results as user message (content can be list)
+                    messages.append(
+                        {"role": "user", "content": tool_results}  # type: ignore[dict-item]
+                    )
+
+                    # Continue conversation
+                    response = agent.client.messages.create(**request_params)
 
                 # === LOG RESPONSE TYPE ===
                 logger.info(f"Response type: {type(response)}")
-                content = getattr(response, "content", [])
-                content_len = len(content) if content is not None else 0
-                logger.info(f"Response content blocks: {content_len}")
+                content_raw = getattr(response, "content", [])
+                content_list: list = list(content_raw) if content_raw else []
+                logger.info(f"Response content blocks: {len(content_list)}")
 
-                # Safe block iteration
-                text_parts = []
-                for i, block in enumerate(content or []):
+                # Safe block iteration - extract text from final response
+                text_parts: list[str] = []
+                for i, block in enumerate(content_list):
                     block_type = type(block).__name__
                     logger.info(f"Block {i} type: {block_type}")
 
@@ -332,18 +404,18 @@ class SocratesAgent(BaseAgent):
 
                     # Safe text extraction
                     if hasattr(block, "text"):
-                        text_parts.append(block.text)
+                        text_parts.append(str(block.text))
                     elif isinstance(block, dict) and "text" in block:
-                        text_parts.append(block["text"])
+                        text_parts.append(str(block["text"]))
 
                 # Handle empty content case
-                result = "\n".join(text_parts).strip() if text_parts else ""
+                result_text: str = "\n".join(text_parts).strip() if text_parts else ""
 
-                logger.info(f"Final response length: {len(result)} chars")
-                logger.info(f"Final response preview: {result[:300]}...")
+                logger.info(f"Final response length: {len(result_text)} chars")
+                logger.info(f"Final response preview: {result_text[:300]}...")
                 logger.info("=" * 60)
 
-                return result
+                return result_text
             except Exception as e:
                 logger.error(f"LLM call failed: {e}", exc_info=True)
                 return self._fallback_response(user_input)
@@ -351,6 +423,124 @@ class SocratesAgent(BaseAgent):
             # Fallback: simple response
             logger.warning("No LLM available, using fallback")
             return self._fallback_response(user_input)
+
+    # =========================================================================
+    # On-Demand Exploration Methods
+    # =========================================================================
+
+    def _check_exploration_triggers(self, user_input: str) -> bool:
+        """Detect if user input suggests exploration would help.
+
+        Looks for keywords that indicate the user is referring to existing
+        code, making assumptions, or mentioning patterns that could be verified.
+
+        Args:
+            user_input: The user's message
+
+        Returns:
+            True if exploration triggers were detected
+        """
+        triggers = [
+            "currently",
+            "right now",
+            "existing",
+            "already",
+            "similar to",
+            "like the",
+            "in the",
+            "the current",
+            "we have",
+            "we use",
+            "our code",
+            "the codebase",
+            "look at",
+            "check the",
+            "see how",
+            "how does",
+            "where is",
+            "find the",
+        ]
+        input_lower = user_input.lower()
+        return any(trigger in input_lower for trigger in triggers)
+
+    def _should_enable_tools(self, user_input: str) -> bool:
+        """Determine if tools should be enabled for this turn.
+
+        Considers:
+        - Whether exploration is enabled
+        - Current conversation phase
+        - Session exploration limits
+        - Whether the input suggests exploration would help
+
+        Args:
+            user_input: The user's message
+
+        Returns:
+            True if tools should be enabled for this LLM call
+        """
+        if not self.exploration_enabled:
+            return False
+        if self.gathered_info["phase"] == "wrap_up":
+            return False  # No exploration during wrap-up
+        if self.total_explorations >= self.max_session_explorations:
+            logger.info("Session exploration limit reached")
+            return False
+        return self._check_exploration_triggers(user_input)
+
+    def _execute_exploration_tool(
+        self, name: str, args: dict, tool_use_id: str
+    ) -> dict:
+        """Execute a read-only exploration tool.
+
+        Args:
+            name: Tool name
+            args: Tool arguments
+            tool_use_id: Unique ID for this tool use
+
+        Returns:
+            Tool result in Anthropic format
+        """
+        try:
+            result = self.tool_registry.execute(name, args)
+            # Truncate long results to manage context
+            if isinstance(result, str) and len(result) > 3000:
+                result = result[:3000] + "\n[... truncated ...]"
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": str(result),
+            }
+        except Exception as e:
+            logger.error(f"Tool execution failed: {name} - {e}")
+            return {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": f"Error: {e}",
+                "is_error": True,
+            }
+
+    def _format_codebase_context_for_prompt(self) -> str:
+        """Format codebase context for inclusion in system prompt.
+
+        Returns:
+            Formatted string summarizing codebase discoveries
+        """
+        if not self.codebase_context.get("relevant_files"):
+            return "No codebase exploration done yet."
+
+        lines = ["**Relevant files found:**"]
+        for path, desc in list(self.codebase_context["relevant_files"].items())[:5]:
+            lines.append(f"- `{path}`: {desc}")
+
+        # Include recent discoveries from this session
+        discoveries = self.gathered_info.get("codebase_discoveries", [])
+        if discoveries:
+            recent = discoveries[-3:]  # Last 3 discoveries
+            lines.append("\n**Recent explorations:**")
+            for d in recent:
+                lines.append(f"- Used `{d['tool']}` on turn {d['turn']}")
+
+        return "\n".join(lines)
 
     def _build_socrates_prompt(self) -> str:
         """Build condensed system prompt optimized for weak models.
@@ -366,6 +556,7 @@ class SocratesAgent(BaseAgent):
         gathered = self._format_gathered_info()
         gaps = self._format_gaps()
         phase_guidance = self._get_phase_guidance(phase)
+        codebase_context = self._format_codebase_context_for_prompt()
 
         intro = (
             "You are **Socrates**, a requirements gathering specialist who "
@@ -408,6 +599,35 @@ class SocratesAgent(BaseAgent):
 
 ### Possible Areas to Explore (choose wisely - skip if already answered):
 {gaps}
+
+## CODEBASE CONTEXT
+
+{codebase_context}
+
+## EXPLORATION TOOLS
+
+You have READ-ONLY tools to explore the codebase when needed:
+- `read_file`: Read a specific file's contents
+- `grep_files`: Search for patterns across files
+- `glob_files`: Find files matching a pattern
+- `list_files`: List directory contents
+
+**USE TOOLS WHEN** the user mentions:
+- Existing code ("the current implementation...", "how we currently...")
+- Assumptions to verify ("we probably have...", "I assume...")
+- Related patterns ("similar to how we do X", "like the existing...")
+
+**WHEN SHARING DISCOVERIES:**
+- Say: "I found [pattern] in [file] - does this relate to what you're building?"
+- Say: "Looking at your codebase, you already have [X] - should this work similarly?"
+- Say: "I see [X] in your code - is this the behavior you want to extend?"
+
+**NEVER:**
+- Suggest implementations or how to code it
+- Write implementation plans
+- Recommend specific code patterns to use
+
+You gather REQUIREMENTS. Exploration helps you ask better questions.
 
 ## CONVERSATION FLOW GUIDANCE
 
@@ -731,6 +951,218 @@ later."
             logger.warning(f"Template not found: {template_path}")
             return "# Template not found"
 
+    # =========================================================================
+    # Codebase Exploration Methods
+    # =========================================================================
+
+    def _scan_codebase_structure(self) -> str:
+        """Scan codebase structure using tree command.
+
+        Returns:
+            Tree output showing file structure
+        """
+        try:
+            # Use tree command with reasonable depth and exclusions
+            result = subprocess.run(
+                [
+                    "tree",
+                    "-L",
+                    "4",  # 4 levels deep
+                    "-I",
+                    "__pycache__|node_modules|.git|.venv|venv|*.pyc|.pytest_cache|.mypy_cache|dist|build|*.egg-info",
+                    "--noreport",  # Don't show file count
+                    str(Path.cwd()),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if result.returncode == 0:
+                tree_output = result.stdout
+                logger.info(f"Scanned codebase: {len(tree_output)} chars")
+
+                # Truncate if too long
+                if len(tree_output) > 4000:
+                    lines = tree_output.split("\n")[:150]
+                    tree_output = "\n".join(lines) + "\n[... truncated ...]"
+
+                return tree_output
+            else:
+                logger.warning(f"tree command failed: {result.stderr}")
+                return self._fallback_scan_structure()
+
+        except FileNotFoundError:
+            logger.warning("tree command not found, using fallback")
+            return self._fallback_scan_structure()
+        except subprocess.TimeoutExpired:
+            logger.warning("tree command timed out")
+            return self._fallback_scan_structure()
+        except Exception as e:
+            logger.error(f"Error scanning codebase: {e}")
+            return self._fallback_scan_structure()
+
+    def _fallback_scan_structure(self) -> str:
+        """Fallback codebase scan using Python when tree is unavailable.
+
+        Returns:
+            Simple directory listing
+        """
+        output_lines = []
+        root = Path.cwd()
+
+        exclude_dirs = {
+            "__pycache__",
+            "node_modules",
+            ".git",
+            ".venv",
+            "venv",
+            ".pytest_cache",
+            ".mypy_cache",
+            "dist",
+            "build",
+        }
+
+        def scan_dir(path: Path, prefix: str = "", depth: int = 0):
+            if depth > 3:  # Max 4 levels
+                return
+
+            try:
+                items = sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name))
+                for i, item in enumerate(items):
+                    if item.name.startswith(".") and item.name not in [".cdd"]:
+                        continue
+                    if item.name in exclude_dirs:
+                        continue
+                    if item.suffix == ".pyc":
+                        continue
+
+                    is_last = i == len(items) - 1
+                    connector = "└── " if is_last else "├── "
+                    output_lines.append(f"{prefix}{connector}{item.name}")
+
+                    if item.is_dir():
+                        extension = "    " if is_last else "│   "
+                        scan_dir(item, prefix + extension, depth + 1)
+            except PermissionError:
+                pass
+
+        output_lines.append(str(root.name))
+        scan_dir(root)
+
+        result = "\n".join(output_lines[:150])  # Limit lines
+        logger.info(f"Fallback scan: {len(result)} chars")
+        return result
+
+    def _find_relevant_files_for_topic(self) -> dict[str, str]:
+        """Find files likely relevant to the spec based on keywords.
+
+        Returns:
+            Dict of file_path -> brief content description
+        """
+        relevant: dict[str, str] = {}
+
+        # Extract keywords from spec content or target path
+        keywords: set[str] = set()
+
+        # Get text to search from spec content or path
+        text_to_search = self.spec_content or ""
+        if self.target_path:
+            text_to_search += f" {self.target_path.stem}"
+
+        # Common feature-related words to look for
+        for word in text_to_search.lower().split():
+            if len(word) > 3 and word.isalpha():
+                keywords.add(word)
+
+        # Also add specific tech terms if present
+        tech_terms = [
+            "cli",
+            "command",
+            "session",
+            "chat",
+            "agent",
+            "tool",
+            "config",
+            "socrates",
+            "planner",
+            "executor",
+        ]
+        for term in tech_terms:
+            if term in text_to_search.lower():
+                keywords.add(term)
+
+        if not keywords:
+            logger.info("No keywords found for file search")
+            return relevant
+
+        logger.debug(f"Searching for files with keywords: {keywords}")
+
+        # Search in src directory
+        src_dir = Path.cwd() / "src"
+        if not src_dir.exists():
+            src_dir = Path.cwd()
+
+        try:
+            for py_file in src_dir.rglob("*.py"):
+                if "__pycache__" in str(py_file):
+                    continue
+
+                # Check if filename matches any keyword
+                filename_lower = py_file.stem.lower()
+                if any(kw in filename_lower for kw in keywords):
+                    rel_path = py_file.relative_to(Path.cwd())
+                    relevant[str(rel_path)] = "Filename matches keywords"
+                    continue
+
+                # Quick scan of file content (first 50 lines)
+                try:
+                    with open(py_file, "r", encoding="utf-8") as f:
+                        head = "".join(f.readline() for _ in range(50))
+
+                    # Check for keyword matches in docstrings/comments
+                    head_lower = head.lower()
+                    matching_kw = [kw for kw in keywords if kw in head_lower]
+                    if len(matching_kw) >= 2:  # At least 2 keyword matches
+                        rel_path = py_file.relative_to(Path.cwd())
+                        relevant[str(rel_path)] = (
+                            f"Contains: {', '.join(matching_kw[:3])}"
+                        )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(f"Error finding relevant files: {e}")
+
+        # Limit to most relevant files
+        if len(relevant) > 10:
+            relevant = dict(list(relevant.items())[:10])
+
+        logger.info(f"Found {len(relevant)} potentially relevant files")
+        return relevant
+
+    def _perform_pre_dialogue_exploration(self) -> None:
+        """Scan codebase before starting dialogue.
+
+        Gathers context about:
+        - Project structure
+        - Files related to the ticket topic
+        - Existing patterns that might be relevant
+
+        Results are stored in self.codebase_context for use during dialogue.
+        """
+        logger.info("Performing pre-dialogue codebase exploration...")
+
+        # 1. Scan structure
+        self.codebase_context["structure"] = self._scan_codebase_structure()
+
+        # 2. Find relevant files
+        self.codebase_context["relevant_files"] = self._find_relevant_files_for_topic()
+
+        # 3. Log exploration summary
+        num_files = len(self.codebase_context["relevant_files"])
+        logger.info(f"Pre-dialogue exploration: {num_files} relevant files found")
+
     def _synthesize_context(self) -> str:
         """Synthesize loaded context into initial greeting.
 
@@ -778,6 +1210,16 @@ later."
             greeting += "**Status:** Found existing content - I'll help refine it\n\n"
         else:
             greeting += "**Status:** Starting fresh - Let's build this together\n\n"
+
+        # Include codebase discoveries if any were found
+        if self.codebase_context.get("relevant_files"):
+            num_files = len(self.codebase_context["relevant_files"])
+            greeting += f"🔍 **Related code found:** {num_files} relevant files\n"
+            for path, desc in list(self.codebase_context["relevant_files"].items())[:3]:
+                greeting += f"  - `{path}`: {desc}\n"
+            if num_files > 3:
+                greeting += f"  - *...and {num_files - 3} more*\n"
+            greeting += "\n"
 
         # Start the conversation with appropriate question based on document type
         if self.document_type == "markdown":
@@ -1429,6 +1871,30 @@ You have enough information. Show the summary now.
     # Conversation Management Methods
     # =========================================================================
 
+    def _extract_text_from_tool_results(self, content: list | str) -> str:
+        """Extract text content from tool_result blocks.
+
+        Tool results are stored as lists of dicts in conversation history.
+        This method extracts readable text for information extraction.
+
+        Args:
+            content: Either a string or list of tool_result dicts
+
+        Returns:
+            Combined text content for information extraction
+        """
+        if isinstance(content, str):
+            return content
+
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and "content" in item:
+                # Truncate each tool result to avoid overly long extractions
+                text = str(item["content"])[:500]
+                texts.append(text)
+
+        return " | ".join(texts)
+
     def _compact_conversation_history(self):
         """Compact conversation history when it gets too long.
 
@@ -1452,6 +1918,11 @@ You have enough information. Show the summary now.
             if i + 1 < len(self.conversation_history):
                 user_msg = self.conversation_history[i].get("content", "")
                 asst_msg = self.conversation_history[i + 1].get("content", "")
+
+                # Handle tool_result blocks in messages
+                user_msg = self._extract_text_from_tool_results(user_msg)
+                asst_msg = self._extract_text_from_tool_results(asst_msg)
+
                 self._extract_info_from_exchange(user_msg, asst_msg)
 
         # Keep first 2 + last 8

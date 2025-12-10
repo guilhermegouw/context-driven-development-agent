@@ -392,8 +392,9 @@ class CustomTextArea(TextArea):
 
     def _on_key(self, event: events.Key) -> None:  # type: ignore[override]
         """Handle key events before default TextArea processing."""
-        # Check if we're in approval mode - if so, handle approval keys directly
         app = self.app
+
+        # Check if we're in approval mode - if so, handle approval keys directly
         if isinstance(app, CDDAgentTUI) and app._approval_pending:
             # When approval is pending, intercept keys and call app actions directly
             event.prevent_default()
@@ -416,6 +417,30 @@ class CustomTextArea(TextArea):
                 return
             elif event.key == "right" or event.key == "tab":
                 app.action_approval_navigate_right()
+                return
+
+        # Check if we're in commit selection mode
+        if isinstance(app, CDDAgentTUI) and app._commit_pending:
+            event.prevent_default()
+            event.stop()
+
+            if event.key == "enter":
+                app.action_commit_confirm()
+                return
+            elif event.key in ("1", "a"):
+                app.action_commit_accept()
+                return
+            elif event.key in ("2", "e"):
+                app.action_commit_edit()
+                return
+            elif event.key in ("3", "c"):
+                app.action_commit_cancel()
+                return
+            elif event.key == "left" or event.key == "shift+tab":
+                app.action_commit_navigate_left()
+                return
+            elif event.key == "right" or event.key == "tab":
+                app.action_commit_navigate_right()
                 return
 
         # Debug: Log key presses that contain 'enter' to help diagnose Shift+Enter
@@ -813,6 +838,14 @@ class CDDAgentTUI(App):
         self._approval_pending = False
         self._approval_selected_option = 1  # Default to Allow (1)
 
+        # Commit command selection state
+        self._commit_pending = False
+        self._commit_selected_option = 1  # 1=Accept, 2=Edit, 3=Cancel
+        self._commit_event = threading.Event()
+        self._commit_result: str | None = None  # "accept", "edit", "cancel"
+        self._commit_message = ""  # Current proposed message
+        self._commit_files: list = []  # Staged files info
+
         # Background process support
         self.background_executor = get_background_executor()
         self.background_processes: Dict[str, dict] = {}  # Track active processes
@@ -825,6 +858,8 @@ class CDDAgentTUI(App):
             provider_config=agent.provider_config,
             tool_registry=agent.tool_registry,
         )
+        # Set TUI reference on session for interactive commands
+        self.chat_session._tui_app = self
 
         super().__init__(ansi_color=True)
 
@@ -1309,6 +1344,163 @@ class CDDAgentTUI(App):
             self._approval_selected_option = 3
             self._approval_result = True
             self._approval_event.set()
+
+    # ============================================================================
+    # Commit Selection System
+    # ============================================================================
+
+    def show_commit_selection(
+        self,
+        message: str,
+        files: list,
+        should_push: bool = False,
+    ) -> str:
+        """Show commit selection UI and wait for user choice.
+
+        Args:
+            message: Proposed commit message
+            files: List of staged files with stats
+            should_push: Whether --push flag was set
+
+        Returns:
+            User choice: "accept", "edit", or "cancel"
+        """
+        # Store commit info
+        self._commit_message = message
+        self._commit_files = files
+        self._commit_should_push = should_push
+
+        # Reset event
+        self._commit_event.clear()
+        self._commit_result = None
+        self._commit_pending = True
+        self._commit_selected_option = 1  # Default to Accept
+
+        # Show selection UI in status widget
+        self.call_from_thread(self._show_commit_in_status)
+
+        # Wait for user selection
+        self._commit_event.wait(timeout=300)
+
+        # Clear pending state
+        self._commit_pending = False
+        self.call_from_thread(self._clear_commit_status)
+
+        return self._commit_result or "cancel"
+
+    def _show_commit_in_status(self) -> None:
+        """Show commit selection in status widget."""
+        status_widget = self.query_one("#status-widget", StatusWidget)
+        status_widget.clear_events()
+
+        # Build commit selection message
+        push_note = " and push" if getattr(self, "_commit_should_push", False) else ""
+
+        msg = "[bold #d4a574]📝 COMMIT READY[/bold #d4a574]"
+        msg += f"\n   Message: [bold]{self._commit_message}[/bold]"
+
+        # Format options with visual selector
+        options = []
+        option_data = [
+            (1, "A", f"Accept{push_note}"),
+            (2, "E", "Edit"),
+            (3, "C", "Cancel"),
+        ]
+
+        for opt_num, key, label in option_data:
+            if self._commit_selected_option == opt_num:
+                options.append(f"[bold #d4a574]> [{key}] {label}[/bold #d4a574]")
+            else:
+                options.append(f"  [dim][{key}] {label}[/dim]")
+
+        msg += "\n   " + "  ".join(options)
+
+        status_widget.add_event(msg)
+
+    def _clear_commit_status(self) -> None:
+        """Clear commit selection from status widget."""
+        status_widget = self.query_one("#status-widget", StatusWidget)
+        status_widget.clear_events()
+
+    def _update_commit_selector(self) -> None:
+        """Update the commit selection display."""
+        if not self._commit_pending:
+            return
+
+        status_widget = self.query_one("#status-widget", StatusWidget)
+        if not status_widget.events:
+            return
+
+        # Rebuild the last event with new selector position
+        lines = status_widget.events[-1].split("\n") if status_widget.events else []
+
+        if len(lines) >= 3:
+            should_push = getattr(self, "_commit_should_push", False)
+            push_note = " and push" if should_push else ""
+            options = []
+            option_data = [
+                (1, "A", f"Accept{push_note}"),
+                (2, "E", "Edit"),
+                (3, "C", "Cancel"),
+            ]
+
+            for opt_num, key, label in option_data:
+                if self._commit_selected_option == opt_num:
+                    options.append(f"[bold #d4a574]> [{key}] {label}[/bold #d4a574]")
+                else:
+                    options.append(f"  [dim][{key}] {label}[/dim]")
+
+            lines[-1] = "   " + "  ".join(options)
+            status_widget.events[-1] = "\n".join(lines)
+            status_widget.update_display()
+
+    def action_commit_navigate_left(self) -> None:
+        """Navigate commit selector left."""
+        if self._commit_pending:
+            self._commit_selected_option -= 1
+            if self._commit_selected_option < 1:
+                self._commit_selected_option = 3
+            self._update_commit_selector()
+
+    def action_commit_navigate_right(self) -> None:
+        """Navigate commit selector right."""
+        if self._commit_pending:
+            self._commit_selected_option += 1
+            if self._commit_selected_option > 3:
+                self._commit_selected_option = 1
+            self._update_commit_selector()
+
+    def action_commit_confirm(self) -> None:
+        """Confirm currently selected commit option."""
+        if self._commit_pending:
+            if self._commit_selected_option == 1:
+                self._commit_result = "accept"
+            elif self._commit_selected_option == 2:
+                self._commit_result = "edit"
+            elif self._commit_selected_option == 3:
+                self._commit_result = "cancel"
+            self._commit_event.set()
+
+    def action_commit_accept(self) -> None:
+        """Accept commit (directly)."""
+        if self._commit_pending:
+            self._commit_selected_option = 1
+            self._commit_result = "accept"
+            self._commit_event.set()
+
+    def action_commit_edit(self) -> None:
+        """Edit commit message (directly)."""
+        if self._commit_pending:
+            self._commit_selected_option = 2
+            self._commit_result = "edit"
+            self._commit_event.set()
+
+    def action_commit_cancel(self) -> None:
+        """Cancel commit (directly)."""
+        if self._commit_pending:
+            self._commit_selected_option = 3
+            self._commit_result = "cancel"
+            self._commit_event.set()
 
     def on_custom_text_area_submitted(self, event: CustomTextArea.Submitted) -> None:
         """Handle when CustomTextArea submits (Enter pressed).

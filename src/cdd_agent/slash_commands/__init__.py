@@ -37,6 +37,7 @@ Available Commands:
 from .base import BaseSlashCommand
 from .base import CommandError
 from .clear_command import ClearCommand
+from .commit_command import CommitCommand
 from .exec_command import ExecCommand
 from .help_command import HelpCommand
 from .init_command import InitCommand
@@ -83,6 +84,12 @@ def setup_commands(router: SlashCommandRouter, session=None) -> None:
         clear_cmd.session = session
     router.register(clear_cmd)
 
+    # Register commit command (requires session for LLM)
+    commit_cmd = CommitCommand()
+    if session:
+        commit_cmd.session = session
+    router.register(commit_cmd)
+
     # Register meta commands
     router.register(HelpCommand())
 
@@ -103,4 +110,5 @@ __all__ = [
     "PlanCommand",
     "ExecCommand",
     "ClearCommand",
+    "CommitCommand",
 ]

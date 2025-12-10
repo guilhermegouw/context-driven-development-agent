@@ -1,0 +1,25 @@
+# Feature Ticket Template
+# IMPORTANT: Only include information explicitly discussed with the user.
+# Delete any section that was not covered in the conversation.
+# Do NOT invent details, estimates, or technical assumptions.
+
+title: Add /clear command to reset chat history
+
+type: feature
+
+description: |
+  A new `/clear` command is needed to reset the chat history, allowing users to start a fresh conversation without restarting the terminal. This is useful when the context gets cluttered or when switching to a completely different topic.
+
+acceptance_criteria:
+  - When the user enters the `/clear` command, only the conversation history (messages between user and AI) is reset.
+  - After clearing the history, a confirmation message "Chat history cleared." is displayed to the user.
+  - System context, such as loaded project files, remains available and is not affected by the command.
+
+implementation_scope:
+  frontend: []
+  backend: []
+
+technical_notes: |
+  The command must specifically target and wipe only the conversational message history. It must not interfere with or unload any other system-level context, data, or project files that are active in the session.
+
+priority:
